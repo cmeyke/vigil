@@ -18,7 +18,6 @@ import asyncio
 import csv
 import time
 import os
-import signal
 import sys
 from datetime import datetime
 from collections import deque
@@ -115,7 +114,11 @@ async def connect_and_stream():
 
     # Keep streaming until disconnected or stopped
     while recording:
-        await asyncio.sleep(STATUS_INTERVAL)
+        try:
+            await asyncio.sleep(STATUS_INTERVAL)
+        except KeyboardInterrupt:
+            recording = False
+            break
 
         # Check max duration
         if max_hours > 0 and (time.monotonic() - start_time) >= max_hours * 3600:
@@ -162,31 +165,33 @@ async def main():
     print(f"  Started:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print()
 
-    # Handle Ctrl+C
-    def stop_handler():
-        global recording
-        recording = False
-        print("\n  Stopping...")
-    loop = asyncio.get_event_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, stop_handler)
-        except NotImplementedError:
-            pass
-
     # Main loop with auto-reconnect
-    while recording:
-        success = await connect_and_stream()
+    try:
+        while recording:
+            try:
+                success = await connect_and_stream()
+            except KeyboardInterrupt:
+                recording = False
+                break
 
-        if not success:
-            print(f"  Retrying in {RECONNECT_DELAY}s...")
-            await asyncio.sleep(RECONNECT_DELAY)
-            continue
+            if not success:
+                print(f"  Retrying in {RECONNECT_DELAY}s...")
+                try:
+                    await asyncio.sleep(RECONNECT_DELAY)
+                except KeyboardInterrupt:
+                    recording = False
+                    break
+                continue
 
-        if recording:
-            # Connection dropped but we're still supposed to be recording
-            print(f"  Reconnecting in {RECONNECT_DELAY}s...")
-            await asyncio.sleep(RECONNECT_DELAY)
+            if recording:
+                print(f"  Reconnecting in {RECONNECT_DELAY}s...")
+                try:
+                    await asyncio.sleep(RECONNECT_DELAY)
+                except KeyboardInterrupt:
+                    recording = False
+                    break
+    except KeyboardInterrupt:
+        recording = False
 
     # Close files
     if ppg_file:
