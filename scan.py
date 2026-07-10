@@ -29,7 +29,11 @@ async def scan_for_polar():
             if isinstance(details, dict):
                 rssi = details.get("rssi", "?")
             elif isinstance(details, (tuple, list)) and len(details) > 0:
-                rssi = details[0]
+                # macOS: details is (CBPeripheral,) — RSSI not in details
+                rssi = "?"
+        # Convert RSSI to string, handle non-numeric types
+        if not isinstance(rssi, (int, float)):
+            rssi = "?"
         if "polar" in name.lower() or "verity" in name.lower():
             polar_devices.append(d)
             print(f"  ✅ POLAR DEVICE FOUND")

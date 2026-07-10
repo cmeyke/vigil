@@ -26,8 +26,8 @@ from bleak import BleakScanner
 from polar_python import PolarDevice
 from polar_python.models import PPGData, ACCData
 import numpy as np
+from sensor import find_sensor
 
-SENSOR_ADDRESS = "24:AC:AC:1F:72:FF"
 FS_PPG = 55
 FS_ACC = 52
 BATTERY_UUID = "00002a19-0000-1000-8000-00805f9b34fb"
@@ -64,12 +64,9 @@ async def connect_and_stream():
     global ppg_file, acc_file, recording, start_time, max_hours
 
     print(f"  Scanning for sensor...")
-    device = await BleakScanner.find_device_by_address(SENSOR_ADDRESS, timeout=15.0)
+    device = await find_sensor(timeout=15.0)
     if not device:
-        print("  ❌ Sensor not found")
         return False
-
-    print(f"  ✅ Found {device.name}")
     polar_device = PolarDevice(device)
     await polar_device.connect()
 

@@ -17,8 +17,8 @@ from polar_python import PolarDevice
 from polar_python.models import PPGData, ACCData
 from scipy.signal import butter, filtfilt, find_peaks
 import numpy as np
+from sensor import find_sensor
 
-SENSOR_ADDRESS = "24:AC:AC:1F:72:FF"
 FS = 55  # PPG sample rate
 LOWCUT = 0.7
 HIGHCUT = 4.0
@@ -68,10 +68,9 @@ def sparkline(values, width=30):
 async def main():
     global start_time, last_display, total_beats
 
-    print(f"Looking for sensor at {SENSOR_ADDRESS}...")
-    device = await BleakScanner.find_device_by_address(SENSOR_ADDRESS, timeout=10.0)
+    print("Looking for sensor...")
+    device = await find_sensor()
     if not device:
-        print("❌ Sensor not found. Turn it on and make sure Flow app is closed.")
         return
 
     print(f"✅ Found {device.name}")

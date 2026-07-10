@@ -18,8 +18,9 @@ from polar_python import PolarDevice
 from polar_python.models import PPGData, ACCData
 import matplotlib.pyplot as plt
 import numpy as np
+from sensor import find_sensor
 
-SENSOR_ADDRESS = "24:AC:AC:1F:72:FF"
+FS = 55  # PPG sample rate
 RECORD_SECONDS = 30
 OUTPUT_DIR = "data"
 
@@ -28,10 +29,9 @@ acc_all = []  # (timestamp_ns, x, y, z)
 
 
 async def main():
-    print(f"Looking for sensor at {SENSOR_ADDRESS}...")
-    device = await BleakScanner.find_device_by_address(SENSOR_ADDRESS, timeout=10.0)
+    print(f"Looking for sensor...")
+    device = await find_sensor()
     if not device:
-        print("❌ Sensor not found.")
         return
 
     print(f"✅ Found {device.name}")

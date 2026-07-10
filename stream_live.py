@@ -13,9 +13,7 @@ import asyncio
 from bleak import BleakScanner
 from polar_python import PolarDevice
 from polar_python.models import PPGData, ACCData, PPIData, HRData
-
-# Sensor address from scan.py
-SENSOR_ADDRESS = "24:AC:AC:1F:72:FF"
+from sensor import find_sensor
 
 # Counters
 ppg_count = 0
@@ -27,13 +25,11 @@ hr_count = 0
 async def main():
     global ppg_count, acc_count, ppi_count, hr_count
 
-    print(f"Looking for Polar sensor at {SENSOR_ADDRESS}...")
-    device = await BleakScanner.find_device_by_address(SENSOR_ADDRESS, timeout=10.0)
+    print(f"Looking for Polar sensor...")
+    device = await find_sensor()
     if not device:
-        print("❌ Sensor not found. Make sure it's turned on and not connected to Flow app.")
         return
-
-    print(f"✅ Found {device.name} ({device.address})")
+    print(f"✅ Found {device.name}")
     print("Connecting...")
 
     polar_device = PolarDevice(device)
