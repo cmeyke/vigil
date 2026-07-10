@@ -125,16 +125,25 @@ async def main():
                 motion_mask = np.abs(acc_resampled - 1000) > 150
                 filtered[motion_mask] = 0
 
-            # Detect peaks
+            # Detect peaks with parabolic interpolation for sub-sample precision
             threshold = np.mean(filtered) + 0.5 * np.std(filtered)
             peaks, _ = find_peaks(
                 filtered, height=threshold, distance=int(0.4 * FS),
                 prominence=0.3 * np.std(filtered),
             )
+            # Parabolic interpolation
+            refined = peaks.astype(float)
+            for i, p in enumerate(peaks):
+                if p == 0 or p == len(filtered) - 1:
+                    continue
+                y0, y1, y2 = filtered[p - 1], filtered[p], filtered[p + 1]
+                denom = y0 - 2 * y1 + y2
+                if denom != 0:
+                    refined[i] = p + 0.5 * (y0 - y2) / denom
 
-            # Convert peak indices to absolute timestamps
+            # Convert refined peak positions to absolute timestamps
             buf_start = time.monotonic() - len(raw) / FS
-            new_peak_times = [buf_start + p / FS for p in peaks]
+            new_peak_times = [buf_start + r / FS for r in refined]
 
             # Merge with previously detected peaks (avoid duplicates)
             if peak_times:

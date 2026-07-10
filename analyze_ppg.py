@@ -36,11 +36,11 @@ def bandpass_filter(signal, fs, lowcut, highcut, order=4):
 
 
 def detect_peaks(filtered, fs, min_distance=0.4, motion_mask=None):
-    """Detect heartbeat peaks in filtered PPG signal.
+    """Detect heartbeat peaks in filtered PPG signal with sub-sample interpolation.
 
     min_distance: minimum seconds between peaks (avoids double-counting)
     motion_mask: boolean array, True = motion artifact (skip peaks there)
-    Returns peak indices and their time positions.
+    Returns peak indices (integer) and refined peak positions (float, in samples).
     """
     signal = filtered.copy()
 
@@ -58,7 +58,20 @@ def detect_peaks(filtered, fs, min_distance=0.4, motion_mask=None):
         distance=min_distance_samples,
         prominence=0.3 * np.std(signal),
     )
-    return peaks
+
+    # Parabolic interpolation for sub-sample peak precision
+    # Fits a parabola to the 3 points around each peak and finds the vertex
+    refined = peaks.astype(float)
+    for i, p in enumerate(peaks):
+        if p == 0 or p == len(signal) - 1:
+            continue
+        y0, y1, y2 = signal[p - 1], signal[p], signal[p + 1]
+        denom = y0 - 2 * y1 + y2
+        if denom != 0:
+            delta = 0.5 * (y0 - y2) / denom
+            refined[i] = p + delta  # delta ∈ [-0.5, +0.5]
+
+    return peaks, refined
 
 
 def filter_rr_outliers(rr_intervals_ms, max_change_pct=20):
@@ -175,8 +188,8 @@ def main():
 
     # ─── Detect peaks (with motion masking) ───
     print("Detecting heartbeat peaks (motion-aware)...")
-    peaks = detect_peaks(filtered, FS, min_distance=0.4, motion_mask=motion_mask)
-    peak_times = peaks / FS
+    peaks, refined = detect_peaks(filtered, FS, min_distance=0.4, motion_mask=motion_mask)
+    peak_times = refined / FS  # use interpolated positions for sub-sample precision
     print(f"Found {len(peaks)} peaks in {len(raw)/FS:.1f}s")
 
     if len(peaks) < 3:
@@ -233,8 +246,8 @@ def main():
     # 2. Filtered signal with detected peaks (first 10 seconds)
     mask10 = t <= 10.0
     axes[1].plot(t[mask10], filtered[mask10], linewidth=1.0, color="green")
-    peaks10 = peaks[peak_times <= 10.0]
-    axes[1].plot(peak_times[peak_times <= 10.0], filtered[peaks10], "ro", markersize=6, label="Detected beats")
+    peaks10_mask = peak_times <= 10.0
+    axes[1].plot(peak_times[peaks10_mask], filtered[peaks[peaks10_mask]], "ro", markersize=6, label="Detected beats")
     axes[1].set_title("Filtered PPG with detected heartbeats — first 10 seconds")
     axes[1].set_ylabel("Amplitude")
     axes[1].set_xlabel("Time (seconds)")
