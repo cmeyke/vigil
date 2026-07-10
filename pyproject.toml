@@ -1,0 +1,16 @@
+[project]
+name = "vigil"
+version = "0.1.0"
+description = "Self-hosted, cloud-free sleep and strength training analysis pipeline using the Polar Verity Sense"
+readme = "README.md"
+license = "AGPL-3.0-only"
+requires-python = ">=3.12"
+dependencies = [
+    "bleak>=3.0.2",
+    "bleakheart>=0.2.0",
+    "matplotlib>=3.11.0",
+    "numpy>=2.5.1",
+    "pandas>=3.0.3",
+    "polar-python>=1.1.1",
+    "scipy>=1.18.0",
+]
