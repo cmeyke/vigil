@@ -212,14 +212,20 @@ async def main():
             print()
             print(f"  Ctrl+C to stop")
 
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         print("\n\nStopping...")
     finally:
-        await polar_device.stop_ppg_stream()
-        await polar_device.stop_acc_stream()
-        await polar_device.disconnect()
+        try:
+            await polar_device.stop_ppg_stream()
+            await polar_device.stop_acc_stream()
+            await polar_device.disconnect()
+        except Exception:
+            pass
         print("Disconnected.")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
