@@ -34,6 +34,7 @@ peak_times = deque(maxlen=HRV_WINDOW + 5)  # timestamps of detected peaks
 # State
 start_time = time.monotonic()
 last_display = 0.0
+total_beats = 0  # total beats since start
 
 
 def bandpass(signal, fs, lo, hi, order=4):
@@ -141,8 +142,11 @@ async def main():
                 for pt in new_peak_times:
                     if pt > last_known + 0.3:  # at least 0.3s after last known
                         peak_times.append(pt)
+                        total_beats += 1
             else:
-                peak_times.extend(new_peak_times)
+                for pt in new_peak_times:
+                    peak_times.append(pt)
+                    total_beats += 1
 
             # Compute RR intervals from recent peaks
             recent = list(peak_times)[-HRV_WINDOW:]
@@ -167,7 +171,7 @@ async def main():
             hr_now = 60000 / rr_clean[-1]
             rmssd = np.sqrt(np.mean(np.diff(rr_clean) ** 2)) if len(rr_clean) >= 3 else 0
             sdnn = np.std(rr_clean, ddof=1) if len(rr_clean) >= 3 else 0
-            n_beats = len(peak_times)
+            n_beats = total_beats
             elapsed = time.monotonic() - start_time
 
             # HR sparkline (last 30 clean RR intervals)
