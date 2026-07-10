@@ -21,7 +21,15 @@ async def scan_for_polar():
     for d in devices:
         # Polar devices typically advertise with "Polar" in the name
         name = d.name or ""
-        rssi = d.details.get("rssi", "?") if hasattr(d, "details") else "?"
+        rssi = "?"
+        if hasattr(d, "rssi") and d.rssi is not None:
+            rssi = d.rssi
+        elif hasattr(d, "details"):
+            details = d.details
+            if isinstance(details, dict):
+                rssi = details.get("rssi", "?")
+            elif isinstance(details, (tuple, list)) and len(details) > 0:
+                rssi = details[0]
         if "polar" in name.lower() or "verity" in name.lower():
             polar_devices.append(d)
             print(f"  ✅ POLAR DEVICE FOUND")
