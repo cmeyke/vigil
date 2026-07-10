@@ -199,8 +199,15 @@ async def main():
             ppg_file.close()
         if acc_file:
             acc_file.close()
+    except Exception:
+        pass
 
-        # Summary
+    print_summary()
+
+
+def print_summary():
+    """Print recording summary. Called from main() or from __main__ on Ctrl+C."""
+    try:
         elapsed = time.monotonic() - start_time
         hours = elapsed / 3600
         ppg_minutes = ppg_count / (FS_PPG * 60)
@@ -215,7 +222,7 @@ async def main():
         print(f"  ACC samples:    {acc_count:,}  ({acc_minutes:.1f} min @ {FS_ACC} Hz)")
         print(f"  Battery:        {battery_level}%")
         print(f"  Session:        {session_timestamp}")
-        if ppg_file and os.path.exists(f"{OUTPUT_DIR}/sleep_ppg_{session_timestamp}.csv"):
+        if session_timestamp and os.path.exists(f"{OUTPUT_DIR}/sleep_ppg_{session_timestamp}.csv"):
             ppg_size = os.path.getsize(f"{OUTPUT_DIR}/sleep_ppg_{session_timestamp}.csv")
             acc_size = os.path.getsize(f"{OUTPUT_DIR}/sleep_acc_{session_timestamp}.csv")
             total_mb = (ppg_size + acc_size) / (1024 * 1024)
@@ -230,4 +237,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        pass
+        print("\n  Stopping...")
+        print_summary()
