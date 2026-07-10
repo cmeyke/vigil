@@ -1,7 +1,7 @@
 """
 vigil — live HR + HRV terminal display
 
-Run: uv run python live_hr.py
+Run: uv run live_hr.py
 
 Connects to the Verity Sense, streams raw PPG, filters and detects
 heartbeats in real-time, and displays HR + HRV metrics to the terminal.

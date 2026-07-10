@@ -1,7 +1,7 @@
 """
 vigil — scan for Polar Verity Sense via BLE
 
-Run: uv run python scan.py
+Run: uv run scan.py
 
 Turn on your Verity Sense (press the button), then run this script.
 It will scan for nearby BLE devices and list any Polar sensors found.

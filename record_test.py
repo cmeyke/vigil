@@ -1,7 +1,7 @@
 """
 vigil — record 30 seconds of PPG + ACC and plot the PPG waveform
 
-Run: uv run python record_test.py
+Run: uv run record_test.py
 
 Records 30 seconds of raw data, saves to CSV, and plots the PPG signal
 so you can visually verify your heartbeat is detectable.

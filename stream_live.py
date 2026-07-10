@@ -1,7 +1,7 @@
 """
 vigil — live stream PPG + ACC from Polar Verity Sense
 
-Run: uv run python stream_live.py
+Run: uv run stream_live.py
 
 Connects to the Verity Sense, streams live PPG (55 Hz) + accelerometer (52 Hz)
 + PPI + HR for 15 seconds, prints sample counts and first few values.

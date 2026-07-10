@@ -48,7 +48,7 @@ AI/LLM for interpretation, trends, recommendations
 ```bash
 cd ~/code/python/ai/vigil
 uv sync
-uv run python main.py
+uv run main
 ```
 
 ## License

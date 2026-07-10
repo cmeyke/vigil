@@ -1,15 +1,15 @@
 """
 vigil — PPG signal processing: filter, detect heartbeats, compute HR + HRV
 
-Run: uv run python analyze_ppg.py
+Run: uv run analyze_ppg.py
 
 Loads the most recent PPG recording from data/, applies band-pass filtering,
 detects heartbeat pulses, computes instant heart rate and HRV metrics,
 and plots the results.
 
 Usage:
-  uv run python analyze_ppg.py                    # auto-finds latest recording
-  uv run python analyze_ppg.py data/ppg_xxx.csv   # specify a file
+  uv run analyze_ppg.py                    # auto-finds latest recording
+  uv run analyze_ppg.py data/ppg_xxx.csv   # specify a file
 """
 
 import sys
