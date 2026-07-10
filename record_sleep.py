@@ -193,34 +193,37 @@ async def main():
     except KeyboardInterrupt:
         recording = False
 
-    # Close files
-    if ppg_file:
-        ppg_file.close()
-    if acc_file:
-        acc_file.close()
+    # Close files and print summary (always runs, even on Ctrl+C)
+    try:
+        if ppg_file:
+            ppg_file.close()
+        if acc_file:
+            acc_file.close()
 
-    # Summary
-    elapsed = time.monotonic() - start_time
-    hours = elapsed / 3600
-    ppg_minutes = ppg_count / (FS_PPG * 60)
-    acc_minutes = acc_count / (FS_ACC * 60)
+        # Summary
+        elapsed = time.monotonic() - start_time
+        hours = elapsed / 3600
+        ppg_minutes = ppg_count / (FS_PPG * 60)
+        acc_minutes = acc_count / (FS_ACC * 60)
 
-    print()
-    print("╔══════════════════════════════════════════╗")
-    print("║  recording complete                       ║")
-    print("╚══════════════════════════════════════════╝")
-    print(f"  Duration:      {hours:.2f} hours ({elapsed:.0f}s)")
-    print(f"  PPG samples:    {ppg_count:,}  ({ppg_minutes:.1f} min @ {FS_PPG} Hz)")
-    print(f"  ACC samples:    {acc_count:,}  ({acc_minutes:.1f} min @ {FS_ACC} Hz)")
-    print(f"  Battery:        {battery_level}%")
-    print(f"  Session:        {session_timestamp}")
-    if ppg_file:
-        ppg_size = os.path.getsize(f"{OUTPUT_DIR}/sleep_ppg_{session_timestamp}.csv")
-        acc_size = os.path.getsize(f"{OUTPUT_DIR}/sleep_acc_{session_timestamp}.csv")
-        total_mb = (ppg_size + acc_size) / (1024 * 1024)
-        print(f"  Disk:           {total_mb:.1f} MB")
-    print()
-    print(f"  Next: uv run analyze_ppg.py data/sleep_ppg_{session_timestamp}.csv")
+        print()
+        print("╔══════════════════════════════════════════╗")
+        print("║  recording complete                       ║")
+        print("╚══════════════════════════════════════════╝")
+        print(f"  Duration:      {hours:.2f} hours ({elapsed:.0f}s)")
+        print(f"  PPG samples:    {ppg_count:,}  ({ppg_minutes:.1f} min @ {FS_PPG} Hz)")
+        print(f"  ACC samples:    {acc_count:,}  ({acc_minutes:.1f} min @ {FS_ACC} Hz)")
+        print(f"  Battery:        {battery_level}%")
+        print(f"  Session:        {session_timestamp}")
+        if ppg_file and os.path.exists(f"{OUTPUT_DIR}/sleep_ppg_{session_timestamp}.csv"):
+            ppg_size = os.path.getsize(f"{OUTPUT_DIR}/sleep_ppg_{session_timestamp}.csv")
+            acc_size = os.path.getsize(f"{OUTPUT_DIR}/sleep_acc_{session_timestamp}.csv")
+            total_mb = (ppg_size + acc_size) / (1024 * 1024)
+            print(f"  Disk:           {total_mb:.1f} MB")
+        print()
+        print(f"  Next: uv run analyze_ppg.py data/sleep_ppg_{session_timestamp}.csv")
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
