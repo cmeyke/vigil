@@ -77,6 +77,22 @@ async def main():
     print(f"✅ Found {device.name}")
     polar_device = PolarDevice(device)
     await polar_device.connect()
+
+    # Read battery level + subscribe to notifications
+    BATTERY_UUID = "00002a19-0000-1000-8000-00805f9b34fb"
+    battery_level = [0]  # list so callback can mutate it
+
+    def battery_callback(sender, data: bytearray):
+        battery_level[0] = data[0]
+
+    try:
+        battery_data = await polar_device._client.read_gatt_char(BATTERY_UUID)
+        battery_level[0] = battery_data[0]
+        print(f"Battery: {battery_level[0]}%")
+        await polar_device._client.start_notify(BATTERY_UUID, battery_callback)
+    except Exception:
+        print("Battery: (unable to read)")
+
     print("Connected! Starting PPG stream...\n")
 
     def ppg_callback(data: PPGData):
@@ -193,7 +209,7 @@ async def main():
             print(f"  ║  vigil — live HR + HRV                   ║")
             print(f"  ╚══════════════════════════════════════════╝")
             print()
-            print(f"  Duration:    {elapsed:.0f}s    Beats: {n_beats}")
+            print(f"  Duration:    {elapsed:.0f}s    Beats: {n_beats}    Battery: {battery_level[0]}%")
             print()
             print(f"  Heart Rate (now):   {hr_now:.0f} BPM")
             print(f"  Heart Rate (avg):   {hr:.0f} BPM   {fmt_bars(hr, 40, 120)}")
