@@ -66,7 +66,7 @@ def sparkline(values, width=30):
 
 
 async def main():
-    global start_time, last_display
+    global start_time, last_display, total_beats
 
     print(f"Looking for sensor at {SENSOR_ADDRESS}...")
     device = await BleakScanner.find_device_by_address(SENSOR_ADDRESS, timeout=10.0)
