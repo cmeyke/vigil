@@ -2,7 +2,7 @@
 vigil — sleep staging with wav2sleep
 
 Converts vigil PPG CSV → wav2sleep format, runs PPG-only inference,
-applies ACC-based motion refinement, and prints a hypnogram + sleep stage summary.
+and prints a hypnogram + sleep stage summary.
 
 Usage:
     uv run sleep_staging.py data/20260711_231213/input/sleep_ppg_20260711_231213.csv
@@ -18,10 +18,8 @@ import os
 import subprocess
 import tempfile
 import shutil
-import csv as csv_mod
 from collections import Counter
 import pandas as pd
-import numpy as np
 
 # Labels: 0=Wake, 1=Light, 2=Deep, 3=REM
 STAGE_LABELS = {0: "Wake", 1: "Light", 2: "Deep", 3: "REM"}
@@ -29,11 +27,6 @@ STAGE_EMOJI = {0: "🟡", 1: "🔵", 2: "🟣", 3: "🔴"}
 
 # Path to wav2sleep venv (separate from vigil's venv due to numpy conflict)
 WAV2SLEEP_PYTHON = os.path.expanduser("~/code/python/ai/wav2sleep-env/.venv/bin/python")
-
-# Motion refinement parameters (matching analyze_ppg.py conventions)
-MOTION_THRESHOLD_MG = 150   # |magnitude - 1G| > 150mG = motion
-EPOCH_SECONDS = 30          # wav2sleep epoch length
-STILL_FRACTION = 0.10       # Awake epoch with <10% motion → reclassify as Light
 
 
 def convert_ppg(ppg_csv: str) -> str:
@@ -110,60 +103,6 @@ predict_on_folder(
     return final_path
 
 
-def refine_with_acc(preds_path: str, ppg_csv: str) -> int:
-    """Refine Awake predictions using ACC motion data.
-
-    If an Awake epoch has little/no accelerometer motion (person is still),
-    reclassify it as Light — wav2sleep over-predicts Wake on PPG-only input.
-
-    Returns the number of epochs reclassified.
-    """
-    # Find ACC file: same directory as PPG, sleep_acc_*.csv
-    session_dir = os.path.dirname(ppg_csv)
-    timestamp = os.path.basename(ppg_csv).replace("sleep_ppg_", "").replace(".csv", "")
-    acc_csv = os.path.join(session_dir, f"sleep_acc_{timestamp}.csv")
-
-    if not os.path.exists(acc_csv):
-        print(f"  No ACC data found ({acc_csv}), skipping motion refinement")
-        return 0
-
-    # Load ACC and compute per-sample motion
-    acc_df = pd.read_csv(acc_csv)
-    acc_start_ns = acc_df["timestamp_ns"].iloc[0]
-    acc_time_s = (acc_df["timestamp_ns"].values - acc_start_ns) / 1e9
-    acc_mag = np.sqrt(acc_df["x_mg"]**2 + acc_df["y_mg"]**2 + acc_df["z_mg"]**2)
-    is_motion = np.abs(acc_mag - 1000) > MOTION_THRESHOLD_MG  # 1G = 1000mG
-
-    # Load predictions
-    with open(preds_path) as f:
-        reader = csv_mod.DictReader(f)
-        preds = [(float(row["Timestamp"]), int(row["Pred"])) for row in reader]
-
-    # For each Awake epoch, check motion fraction
-    reclassified = 0
-    new_preds = []
-    for ts, pred in preds:
-        if pred == 0:  # Awake
-            epoch_start = ts
-            epoch_end = ts + EPOCH_SECONDS
-            mask = (acc_time_s >= epoch_start) & (acc_time_s < epoch_end)
-            if mask.sum() > 0:
-                motion_frac = np.mean(is_motion[mask])
-                if motion_frac < STILL_FRACTION:
-                    pred = 1  # Reclassify as Light
-                    reclassified += 1
-        new_preds.append((ts, pred))
-
-    # Write refined predictions back
-    with open(preds_path, "w", newline="") as f:
-        writer = csv_mod.writer(f)
-        writer.writerow(["Timestamp", "Pred"])
-        for ts, pred in new_preds:
-            writer.writerow([ts, pred])
-
-    return reclassified
-
-
 def main():
     if len(sys.argv) < 2:
         print("Usage: uv run sleep_staging.py <ppg_csv>")
@@ -182,12 +121,6 @@ def main():
 
     print(f"Running wav2sleep on {ppg_csv}...")
     preds_path = run_wav2sleep(ppg_csv, analysis_dir)
-
-    # Refine Awake predictions using ACC motion data
-    print("Refining with ACC motion data...")
-    reclassified = refine_with_acc(preds_path, ppg_csv)
-    if reclassified > 0:
-        print(f"  Reclassified {reclassified} Awake → Light (no motion detected)")
 
     # Read predictions
     import csv
