@@ -1,11 +1,14 @@
 """
 vigil — sleep staging with wav2sleep
 
-Runs wav2sleep PPG-only inference on vigil PPG data and produces
-a hypnogram (sleep stage timeline).
+Converts vigil PPG CSV → wav2sleep format, runs PPG-only inference,
+and prints a hypnogram + sleep stage summary.
 
 Usage:
-    uv run sleep_staging.py data/20260711_231213/sleep_ppg_20260711_231213_wav2sleep.csv
+    uv run sleep_staging.py data/20260711_231213/input/sleep_ppg_20260711_231213.csv
+
+Output:
+    data/20260711_231213/analysis/sleep_stages_20260711_231213.csv
 
 Requires: wav2sleep installed in separate venv at ~/code/python/ai/wav2sleep-env
 """
@@ -14,7 +17,10 @@ import sys
 import os
 import subprocess
 import tempfile
+import shutil
 from collections import Counter
+import pandas as pd
+import numpy as np
 
 # Labels: 0=Wake, 1=Light, 2=Deep, 3=REM
 STAGE_LABELS = {0: "Wake", 1: "Light", 2: "Deep", 3: "REM"}
@@ -24,24 +30,35 @@ STAGE_EMOJI = {0: "🟡", 1: "🔵", 2: "🟣", 3: "🔴"}
 WAV2SLEEP_PYTHON = os.path.expanduser("~/code/python/ai/wav2sleep-env/.venv/bin/python")
 
 
-def run_wav2sleep(ppg_csv: str, output_dir: str) -> str:
-    """Run wav2sleep prediction on a PPG CSV file. Returns predictions CSV path."""
-    import shutil
-    import tempfile
+def convert_ppg(ppg_csv: str) -> str:
+    """Convert vigil PPG CSV to wav2sleep format. Returns temp CSV path."""
+    df = pd.read_csv(ppg_csv)
+    ppg = df[["ch0", "ch1", "ch2", "ch3"]].mean(axis=1).values
+    start_ns = df["timestamp_ns"].iloc[0]
+    timestamps_sec = (df["timestamp_ns"].values - start_ns) / 1e9
 
-    # Use a temp directory for wav2sleep input/output (it mirrors the full
-    # input path inside the output folder, creating deep nested dirs)
+    out = pd.DataFrame({"timestamp": timestamps_sec, "PPG": ppg})
+
+    tmp = tempfile.NamedTemporaryFile(suffix="_wav2sleep.csv", delete=False, mode="w")
+    out.to_csv(tmp.name, index=False)
+    return tmp.name
+
+
+def run_wav2sleep(ppg_csv: str, output_dir: str) -> str:
+    """Run wav2sleep prediction. Returns predictions CSV path."""
     with tempfile.TemporaryDirectory() as tmpdir:
+        # Convert PPG to wav2sleep format
+        wav2sleep_csv = convert_ppg(ppg_csv)
+
+        # Set up input
         input_dir = os.path.join(tmpdir, "input")
         os.makedirs(input_dir, exist_ok=True)
-        shutil.copy2(ppg_csv, input_dir)
+        shutil.copy2(wav2sleep_csv, input_dir)
 
-        # Auto-detect recording duration to avoid zero-padding
-        # (padding causes the model to over-predict Wake)
-        import pandas as pd
-        df = pd.read_csv(ppg_csv)
+        # Auto-detect recording duration (avoid zero-padding → over-predicts Wake)
+        df = pd.read_csv(wav2sleep_csv)
         duration_hours = df["timestamp"].iloc[-1] / 3600
-        max_length_hours = int(duration_hours) + 1  # round up
+        max_length_hours = int(duration_hours) + 1
 
         script = f"""
 from wav2sleep import predict_on_folder
@@ -55,14 +72,17 @@ predict_on_folder(
 )
 """
 
-        result = subprocess.run(
+        subprocess.run(
             [WAV2SLEEP_PYTHON, "-c", script],
             check=True,
             capture_output=True,
             text=True,
         )
 
-        # Find predictions file in the nested output structure
+        # Clean up temp converter file
+        os.unlink(wav2sleep_csv)
+
+        # Find predictions file
         preds_path = None
         for root, dirs, files in os.walk(os.path.join(tmpdir, "output")):
             for f in files:
@@ -75,9 +95,10 @@ predict_on_folder(
         if not preds_path:
             raise RuntimeError("No predictions file found")
 
-        # Copy prediction file to a clean output location
+        # Copy to analysis/ directory with clean name
         os.makedirs(output_dir, exist_ok=True)
-        final_path = os.path.join(output_dir, os.path.basename(preds_path))
+        timestamp = os.path.basename(ppg_csv).replace("sleep_ppg_", "").replace(".csv", "")
+        final_path = os.path.join(output_dir, f"sleep_stages_{timestamp}.csv")
         shutil.copy2(preds_path, final_path)
 
     return final_path
@@ -85,9 +106,9 @@ predict_on_folder(
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: uv run sleep_staging.py <ppg_wav2sleep.csv>")
-        print("  Input: CSV from convert_to_wav2sleep.py")
-        print("  Output: hypnogram + summary to stdout")
+        print("Usage: uv run sleep_staging.py <ppg_csv>")
+        print("  Input:  data/<session>/input/sleep_ppg_<timestamp>.csv")
+        print("  Output: data/<session>/analysis/sleep_stages_<timestamp>.csv")
         sys.exit(1)
 
     ppg_csv = sys.argv[1]
@@ -95,9 +116,12 @@ def main():
         print(f"Error: {ppg_csv} not found")
         sys.exit(1)
 
+    # Output to analysis/ directory
+    session_dir = os.path.dirname(os.path.dirname(ppg_csv))  # data/<timestamp>/
+    analysis_dir = os.path.join(session_dir, "analysis")
+
     print(f"Running wav2sleep on {ppg_csv}...")
-    output_dir = os.path.join(os.path.dirname(ppg_csv), "wav2sleep_output")
-    preds_path = run_wav2sleep(ppg_csv, output_dir)
+    preds_path = run_wav2sleep(ppg_csv, analysis_dir)
 
     # Read predictions
     import csv
@@ -133,18 +157,15 @@ def main():
     print(f"  Total sleep time: {sleep_epochs * 0.5 / 60:.1f}h")
     print("=" * 50)
 
-    # Hourly timeline
+    # Hourly hypnogram
     print()
     print("  Hypnogram (hourly):")
-    print("  Hour  W  L  D  R")
     for hour in range(int(preds[-1][0] / 3600) + 1):
         counts = {0: 0, 1: 0, 2: 0, 3: 0}
         for ts, p in preds:
             h = ts / 3600
             if hour <= h < hour + 1:
                 counts[p] += 1
-        # Show dominant stage
-        dominant = max(counts, key=counts.get)
         total = sum(counts.values())
         if total == 0:
             continue

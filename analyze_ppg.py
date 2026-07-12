@@ -128,10 +128,13 @@ def compute_hrv(rr_intervals_ms):
 
 
 def load_latest_ppg(data_dir="data"):
-    """Find the most recent PPG CSV file."""
-    files = sorted(glob.glob(f"{data_dir}/ppg_*.csv"))
+    """Find the most recent PPG CSV file in data/*/input/."""
+    files = sorted(glob.glob(f"{data_dir}/*/input/sleep_ppg_*.csv"))
     if not files:
-        print(f"❌ No PPG files found in {data_dir}/")
+        # Fallback: check data/ directly (old structure)
+        files = sorted(glob.glob(f"{data_dir}/*ppg_*.csv"))
+    if not files:
+        print(f"❌ No PPG files found in {data_dir}/*/input/")
         sys.exit(1)
     return files[-1]
 
@@ -157,7 +160,11 @@ def main():
     t = np.arange(len(raw)) / FS
 
     # Also load ACC if available for motion artifact flagging
+    # ACC is in the same input/ directory as PPG
     acc_file = ppg_file.replace("ppg_", "acc_")
+    if not os.path.exists(acc_file):
+        acc_file = os.path.join(os.path.dirname(ppg_file), ppg_file.replace("ppg_", "acc_").replace(os.path.basename(ppg_file), ""))
+        acc_file = os.path.join(os.path.dirname(ppg_file), os.path.basename(ppg_file).replace("ppg_", "acc_"))
     acc_mag = None
     if os.path.exists(acc_file):
         df_acc = pd.read_csv(acc_file)
@@ -275,13 +282,18 @@ def main():
 
     plt.tight_layout()
 
-    # Save plot
-    output_file = ppg_file.replace("ppg_", "analysis_").replace(".csv", ".png")
+    # Save plot and RR intervals to analysis/ directory
+    session_dir = os.path.dirname(os.path.dirname(ppg_file))  # data/<timestamp>/
+    analysis_dir = os.path.join(session_dir, "analysis")
+    os.makedirs(analysis_dir, exist_ok=True)
+    timestamp = os.path.basename(ppg_file).replace("sleep_ppg_", "").replace(".csv", "")
+
+    output_file = os.path.join(analysis_dir, f"sleep_analysis_{timestamp}.png")
     plt.savefig(output_file, dpi=150)
     print(f"\nPlot saved: {output_file}")
 
     # Save RR intervals
-    rr_file = ppg_file.replace("ppg_", "rr_").replace(".csv", ".csv")
+    rr_file = os.path.join(analysis_dir, f"sleep_rr_{timestamp}.csv")
     pd.DataFrame({
         "beat": np.arange(1, len(rr_clean) + 1),
         "rr_ms": rr_clean,
