@@ -11,3 +11,7 @@ wheels/
 
 # Recorded data (contains personal health data)
 data/
+
+# Google OAuth credentials
+google_credentials.json
+google_token.json
