@@ -78,35 +78,19 @@ def main():
     segments.append((seg_start, preds[-1][0] + EPOCH_SECONDS, seg_stage))
 
     # Create figure — dark background
-    fig, ax = plt.subplots(figsize=(14, 4), facecolor="#1a1a2e")
+    fig, ax = plt.subplots(figsize=(14, 5.5), facecolor="#1a1a2e")
     ax.set_facecolor("#1a1a2e")
 
-    # Draw each segment as a colored horizontal bar with fill below
-    prev_y = None
+    # Draw each segment as a colored horizontal line
     for start, end, stage in segments:
         y = STAGE_Y[stage]
         color = STAGE_COLORS[stage]
-
-        # Filled area below the line
-        ax.fill_between(
-            [start, end], -0.1, y,
-            color=color, alpha=0.12, linewidth=0,
-        )
 
         # Thick colored line segment
         ax.plot(
             [start, end], [y, y],
             color=color, linewidth=5, solid_capstyle="butt",
         )
-
-        # Vertical connector to previous segment (subtle)
-        if prev_y is not None and prev_y != y:
-            ax.plot(
-                [start, start], [prev_y, y],
-                color=color, linewidth=3, solid_capstyle="butt",
-            )
-
-        prev_y = y
 
     # Y-axis: stage names
     ax.set_yticks([0, 1, 2, 3])
@@ -153,10 +137,10 @@ def main():
             label=f"{STAGE_NAMES[stage]}  {hours:.1f}h ({pct:.0f}%)",
         ))
 
-    ax.legend(
+    fig.legend(
         handles=legend_patches,
-        loc="lower center",
-        bbox_to_anchor=(0.5, -0.15),
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.11),
         ncol=4,
         facecolor="#2a2a4e",
         edgecolor="#3a3a5e",
@@ -168,7 +152,7 @@ def main():
     ax.set_xlim(-60, total_secs + 60)
     ax.set_ylim(-0.2, 3.3)
 
-    plt.tight_layout()
+    plt.subplots_adjust(left=0.08, right=0.96, top=0.90, bottom=0.22)
 
     output_path = stages_csv.replace("sleep_stages_", "hypnogram_").replace(".csv", ".png")
     plt.savefig(output_path, dpi=150, facecolor=fig.get_facecolor())
