@@ -58,12 +58,17 @@ def main():
     except ValueError:
         start_dt = datetime(2026, 1, 1, 0, 0)
 
-    # Summary
+    # Summary — trim leading/trailing Awake epochs from stats
+    # (they're still drawn in the graph, just not counted as sleep)
     stages = [p[1] for p in preds]
-    c = Counter(stages)
-    total_h = len(stages) * EPOCH_SECONDS / 3600
+    first_sleep = next((i for i, s in enumerate(stages) if s != 0), 0)
+    last_sleep = next((i for i, s in enumerate(reversed(stages)) if s != 0), 0)
+    last_sleep = len(stages) - last_sleep  # convert from reversed index
+    trimmed = stages[first_sleep:last_sleep]
+    c = Counter(trimmed)
     sleep_epochs = sum(c[s] for s in [1, 2, 3])
-    sleep_eff = 100 * sleep_epochs / len(stages)
+    total_h = sleep_epochs * EPOCH_SECONDS / 3600  # actual sleep time
+    sleep_eff = 100 * sleep_epochs / len(trimmed) if trimmed else 0
 
     # --- Smooth: merge consecutive same-stage epochs into segments ---
     segments = []  # (start_sec, end_sec, stage)
@@ -131,7 +136,7 @@ def main():
     for stage in [2, 1, 3, 0]:  # Deep, Light, REM, Awake
         count = c.get(stage, 0)
         hours = count * EPOCH_SECONDS / 3600
-        pct = 100 * count / len(stages)
+        pct = 100 * count / len(trimmed) if trimmed else 0
         legend_patches.append(Patch(
             color=STAGE_COLORS[stage],
             label=f"{STAGE_NAMES[stage]}  {hours:.1f}h ({pct:.0f}%)",
