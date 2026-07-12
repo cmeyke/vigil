@@ -67,7 +67,7 @@ def main():
     trimmed = stages[first_sleep:last_sleep]
     c = Counter(trimmed)
     sleep_epochs = sum(c[s] for s in [1, 2, 3])
-    total_h = sleep_epochs * EPOCH_SECONDS / 3600  # actual sleep time
+    total_h = len(trimmed) * EPOCH_SECONDS / 3600  # time in bed (onset to final awakening)
     sleep_eff = 100 * sleep_epochs / len(trimmed) if trimmed else 0
 
     # --- Smooth: merge consecutive same-stage epochs into segments ---
