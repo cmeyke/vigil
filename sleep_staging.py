@@ -32,6 +32,13 @@ def run_wav2sleep(ppg_csv: str, output_dir: str) -> str:
     os.makedirs(input_dir, exist_ok=True)
     shutil.copy2(ppg_csv, input_dir)
 
+    # Auto-detect recording duration to avoid zero-padding
+    # (padding causes the model to over-predict Wake)
+    import pandas as pd
+    df = pd.read_csv(ppg_csv)
+    duration_hours = df["timestamp"].iloc[-1] / 3600
+    max_length_hours = int(duration_hours) + 1  # round up
+
     script = f"""
 from wav2sleep import predict_on_folder
 predict_on_folder(
@@ -40,7 +47,7 @@ predict_on_folder(
     model_folder="hf://joncarter/wav2sleep",
     signals=["PPG"],
     batch_size=1,
-    max_length_hours=10,
+    max_length_hours={max_length_hours},
 )
 """
 
