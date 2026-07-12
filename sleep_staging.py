@@ -27,23 +27,27 @@ WAV2SLEEP_PYTHON = os.path.expanduser("~/code/python/ai/wav2sleep-env/.venv/bin/
 def run_wav2sleep(ppg_csv: str, output_dir: str) -> str:
     """Run wav2sleep prediction on a PPG CSV file. Returns predictions CSV path."""
     import shutil
-    os.makedirs(output_dir, exist_ok=True)
-    input_dir = os.path.join(output_dir, "input")
-    os.makedirs(input_dir, exist_ok=True)
-    shutil.copy2(ppg_csv, input_dir)
+    import tempfile
 
-    # Auto-detect recording duration to avoid zero-padding
-    # (padding causes the model to over-predict Wake)
-    import pandas as pd
-    df = pd.read_csv(ppg_csv)
-    duration_hours = df["timestamp"].iloc[-1] / 3600
-    max_length_hours = int(duration_hours) + 1  # round up
+    # Use a temp directory for wav2sleep input/output (it mirrors the full
+    # input path inside the output folder, creating deep nested dirs)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_dir = os.path.join(tmpdir, "input")
+        os.makedirs(input_dir, exist_ok=True)
+        shutil.copy2(ppg_csv, input_dir)
 
-    script = f"""
+        # Auto-detect recording duration to avoid zero-padding
+        # (padding causes the model to over-predict Wake)
+        import pandas as pd
+        df = pd.read_csv(ppg_csv)
+        duration_hours = df["timestamp"].iloc[-1] / 3600
+        max_length_hours = int(duration_hours) + 1  # round up
+
+        script = f"""
 from wav2sleep import predict_on_folder
 predict_on_folder(
     input_folder="{input_dir}",
-    output_folder="{output_dir}",
+    output_folder="{tmpdir}/output",
     model_folder="hf://joncarter/wav2sleep",
     signals=["PPG"],
     batch_size=1,
@@ -51,20 +55,32 @@ predict_on_folder(
 )
 """
 
-    result = subprocess.run(
-        [WAV2SLEEP_PYTHON, "-c", script],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+        result = subprocess.run(
+            [WAV2SLEEP_PYTHON, "-c", script],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
-    # Find predictions file
-    for root, dirs, files in os.walk(output_dir):
-        for f in files:
-            if f.endswith(".preds.csv"):
-                return os.path.join(root, f)
+        # Find predictions file in the nested output structure
+        preds_path = None
+        for root, dirs, files in os.walk(os.path.join(tmpdir, "output")):
+            for f in files:
+                if f.endswith(".preds.csv"):
+                    preds_path = os.path.join(root, f)
+                    break
+            if preds_path:
+                break
 
-    raise RuntimeError("No predictions file found")
+        if not preds_path:
+            raise RuntimeError("No predictions file found")
+
+        # Copy prediction file to a clean output location
+        os.makedirs(output_dir, exist_ok=True)
+        final_path = os.path.join(output_dir, os.path.basename(preds_path))
+        shutil.copy2(preds_path, final_path)
+
+    return final_path
 
 
 def main():
