@@ -26,7 +26,20 @@ overnight — the phone is the nightstand recorder.
 2. Pair the Verity Sense in the app
 3. Press **Start sleep recording** before bed
 4. Press **Stop** in the morning
-5. Transfer the CSV files from `Documents/vigil/<timestamp>/` to your computer
+5. Import the recordings to your computer:
+
+```bash
+# Preview new sessions on a connected phone:
+uv run import-android.py --dry-run
+
+# Import new sessions into data/<timestamp>/input/:
+uv run import-android.py
+```
+
+The script uses `adb` to scan `Documents/vigil/<timestamp>/` on the phone,
+copies any sessions not already present locally, and prompts to run
+`sleep_staging.py` + `plot_hypnogram.py` on the freshly imported recording.
+Set the adb path via `ADB=/path/to/adb` or `--adb PATH` if it's not on `PATH`.
 
 ### Method 2: Python live streaming
 
@@ -157,6 +170,7 @@ The `data/` directory is gitignored (contains personal health data).
 | Script | Description |
 |---|---|
 | `record_sleep.py` | Overnight BLE recording (PPG + ACC → CSV) with auto-reconnect, `--hours N` auto-stop |
+| `import-android.py` | Pull new sleep recordings from a connected Android phone via `adb` (skips already-imported sessions) |
 | `sleep_staging.py` | PPG → wav2sleep inference → sleep stage predictions CSV |
 | `plot_hypnogram.py` | Sleep stages CSV → dark-themed hypnogram PNG |
 | `analyze_ppg.py` | PPG → heart rate + HRV metrics + 4-panel plot |
