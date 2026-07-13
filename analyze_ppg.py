@@ -7,12 +7,15 @@ Loads the most recent PPG recording from data/, applies band-pass filtering,
 detects heartbeat pulses, computes instant heart rate and HRV metrics,
 and plots the results.
 
-Skips recordings that have already been analyzed (both the plot PNG and the
-RR CSV must exist in data/<timestamp>/analysis/). Use --force to re-analyze.
+Skips recordings that have already been analyzed (plot PNG, RR CSV, and
+results TXT must all exist in data/<timestamp>/analysis/). Use --force to
+re-analyze, or --all to scan every session and re-analyze any with
+missing outputs.
 
 Usage:
-  uv run analyze_ppg.py                    # auto-finds latest recording
+  uv run analyze_ppg.py                    # auto-finds latest incomplete (or latest)
   uv run analyze_ppg.py data/ppg_xxx.csv   # specify a file
+  uv run analyze_ppg.py --all              # backfill any sessions missing outputs
   uv run analyze_ppg.py --force            # re-analyze even if outputs exist
 """
 
@@ -144,40 +147,102 @@ def load_latest_ppg(data_dir="data"):
     return files[-1]
 
 
+def find_all_ppg(data_dir="data"):
+    """Find all PPG CSV files in data/*/input/, sorted oldest-first."""
+    files = sorted(glob.glob(f"{data_dir}/*/input/sleep_ppg_*.csv"))
+    if not files:
+        files = sorted(glob.glob(f"{data_dir}/*ppg_*.csv"))
+    return files
+
+
+def output_paths_for(ppg_file):
+    """Compute the analysis output paths for a given PPG file."""
+    session_dir = os.path.dirname(os.path.dirname(ppg_file))  # data/<timestamp>/
+    analysis_dir = os.path.join(session_dir, "analysis")
+    timestamp = os.path.basename(ppg_file).replace("sleep_ppg_", "").replace(".csv", "")
+    return (
+        analysis_dir,
+        timestamp,
+        os.path.join(analysis_dir, f"sleep_analysis_{timestamp}.png"),
+        os.path.join(analysis_dir, f"sleep_rr_{timestamp}.csv"),
+        os.path.join(analysis_dir, f"sleep_results_{timestamp}.txt"),
+    )
+
+
+def is_analyzed(ppg_file):
+    """True if all three analysis outputs exist for this PPG file."""
+    _, _, png, rr, txt = output_paths_for(ppg_file)
+    return os.path.exists(png) and os.path.exists(rr) and os.path.exists(txt)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Analyze PPG for HR + HRV")
     parser.add_argument("ppg_file", nargs="?", default=None,
                         help="PPG CSV file (default: auto-find latest in data/*/input/)")
+    parser.add_argument("--all", action="store_true",
+                        help="Scan all sessions and re-analyze any with missing outputs")
     parser.add_argument("--force", action="store_true",
                         help="Re-analyze even if outputs already exist")
     args = parser.parse_args()
 
     # Get input file
     if args.ppg_file:
-        ppg_file = args.ppg_file
-    else:
-        ppg_file = load_latest_ppg()
-        print(f"Auto-selected latest: {ppg_file}")
+        return analyze_one(args.ppg_file, force=args.force)
 
+    if args.all:
+        files = find_all_ppg()
+        if not files:
+            print("❌ No PPG files found in data/*/input/")
+            sys.exit(1)
+        print(f"Scanning {len(files)} session(s) for missing analysis...\n")
+        analyzed = 0
+        skipped = 0
+        for ppg_file in files:
+            _, _, png, rr, txt = output_paths_for(ppg_file)
+            if not args.force and is_analyzed(ppg_file):
+                print(f"  ✓ {os.path.basename(os.path.dirname(os.path.dirname(ppg_file)))} — complete, skipping")
+                skipped += 1
+                continue
+            ts = os.path.basename(os.path.dirname(os.path.dirname(ppg_file)))
+            print(f"  → Analyzing {ts}...")
+            if analyze_one(ppg_file, force=args.force):
+                analyzed += 1
+            print()
+        print("=" * 55)
+        print(f"  Analyzed {analyzed}, already complete {skipped}")
+        print("=" * 55)
+        return
+
+    # Default: auto-pick the latest session that's missing outputs, falling
+    # back to the latest session overall (which will then skip).
+    files = find_all_ppg()
+    if not files:
+        print("❌ No PPG files found in data/*/input/")
+        sys.exit(1)
+    incomplete = [f for f in files if not is_analyzed(f)]
+    if incomplete:
+        ppg_file = incomplete[-1]
+        print(f"Auto-selected latest incomplete: {ppg_file}")
+    else:
+        ppg_file = files[-1]
+        print(f"Auto-selected latest: {ppg_file}")
+    return analyze_one(ppg_file, force=args.force)
+
+
+def analyze_one(ppg_file, force=False):
+    """Run the full HR/HRV analysis on a single PPG file."""
     if not os.path.exists(ppg_file):
         print(f"❌ File not found: {ppg_file}")
-        sys.exit(1)
+        return False
 
-    # Compute output paths and skip if both already exist (unless --force)
-    session_dir = os.path.dirname(os.path.dirname(ppg_file))  # data/<timestamp>/
-    analysis_dir = os.path.join(session_dir, "analysis")
-    timestamp = os.path.basename(ppg_file).replace("sleep_ppg_", "").replace(".csv", "")
-    output_file = os.path.join(analysis_dir, f"sleep_analysis_{timestamp}.png")
-    rr_file = os.path.join(analysis_dir, f"sleep_rr_{timestamp}.csv")
-    results_file = os.path.join(analysis_dir, f"sleep_results_{timestamp}.txt")
+    analysis_dir, timestamp, output_file, rr_file, results_file = output_paths_for(ppg_file)
 
-    if not args.force and os.path.exists(output_file) and os.path.exists(rr_file) \
-            and os.path.exists(results_file):
+    if not force and is_analyzed(ppg_file):
         print(f"Already analyzed: {output_file}")
         print(f"                 {rr_file}")
         print(f"                 {results_file}")
         print("(use --force to re-analyze)")
-        return
+        return True
 
     # Load data
     df = pd.read_csv(ppg_file)
