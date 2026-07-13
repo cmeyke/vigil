@@ -18,6 +18,11 @@ This script copies them into the local structure:
 Only sessions not already present locally are imported. Use --force to
 re-import existing ones, or --dry-run to preview without copying.
 
+On import, timestamps are normalized from Polar-epoch (2000-01-01, the
+Polar sensor's native epoch) to Unix-epoch (1970-01-01) by adding
+946684800000000000 ns when needed. Recordings made with older Android app
+versions that wrote raw sensor timestamps are auto-fixed in place.
+
 Usage:
     uv run import-android.py                                   # import new sessions
     uv run import-android.py --dry-run                         # preview only
@@ -33,6 +38,7 @@ import argparse
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR, "data")
@@ -40,6 +46,14 @@ DATA_DIR = os.path.join(SCRIPT_DIR, "data")
 REMOTE_BASE = (
     "/storage/emulated/0/Android/data/com.vigil.android/files/Documents/vigil"
 )
+
+# Polar sensors report nanoseconds since 2000-01-01 (Polar epoch), not
+# 1970-01-01 (Unix epoch). The Android SDK writes the raw sensor timestamp
+# without applying this offset, so recordings appear ~30 years in the past.
+# We add it on import so vigil works with Unix-epoch nanoseconds throughout.
+# (The Python polar-python SDK already adds this offset internally.)
+# Reference: https://github.com/polarofficial/polar-ble-sdk/blob/master/documentation/TimeSystemExplained.md
+POLAR_TO_UNIX_EPOCH_NS = 946684800_000_000_000
 
 ADB_PATH = os.environ.get(
     "ADB",
@@ -65,6 +79,60 @@ def is_timestamp_dir(name):
         and name[:8].isdigit()
         and name[9:].isdigit()
     )
+
+
+def needs_epoch_fix(csv_path):
+    """True if the first timestamp_ns in csv_path predates 2020 UTC.
+
+    Polar sensor timestamps are nanoseconds since 2000-01-01. The Android
+    SDK writes them without adding the Unix-epoch offset, so they appear
+    ~30 years in the past (e.g. 1996 instead of 2026). We detect that here
+    so we can add the offset on import.
+    """
+    try:
+        import csv as _csv
+        with open(csv_path, newline="") as f:
+            reader = _csv.reader(f)
+            next(reader, None)  # header
+            row = next(reader, None)
+            if not row:
+                return False
+            ts_ns = int(row[0])
+        dt = datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc)
+        # A correct Unix-epoch timestamp in 2026 lands in 2026; an unfixed
+        # Polar-epoch timestamp lands ~30 years earlier (1996-ish). 2020 is a
+        # safe threshold — vigil recordings only started in 2026.
+        return dt.year < 2020
+    except (ValueError, OSError, StopIteration):
+        return False
+
+
+def fix_epoch(csv_path):
+    """Add POLAR_TO_UNIX_EPOCH_NS to every timestamp_ns in csv_path (in place)."""
+    import tempfile
+    import csv as _csv
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        prefix=".vigil_fix_", suffix=".csv", dir=os.path.dirname(csv_path)
+    )
+    os.close(tmp_fd)
+    try:
+        with open(csv_path, newline="") as src, open(tmp_path, "w", newline="") as dst:
+            reader = _csv.reader(src)
+            writer = _csv.writer(dst)
+            header = next(reader, None)
+            if header:
+                writer.writerow(header)
+            for row in reader:
+                if row:
+                    row[0] = str(int(row[0]) + POLAR_TO_UNIX_EPOCH_NS)
+                    writer.writerow(row)
+        os.replace(tmp_path, csv_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def list_remote_sessions():
@@ -117,6 +185,10 @@ def pull_session(session, force=False):
             continue
         size_mb = os.path.getsize(local_path) / (1024 * 1024)
         print(f"  + {fname}  ({size_mb:.1f} MB)")
+        # Normalize Polar-epoch timestamps to Unix epoch if needed
+        if needs_epoch_fix(local_path):
+            fix_epoch(local_path)
+            print(f"    ↳ added Polar→Unix epoch offset to timestamps")
         imported += 1
 
     if skipped:
