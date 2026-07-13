@@ -169,10 +169,13 @@ def main():
     timestamp = os.path.basename(ppg_file).replace("sleep_ppg_", "").replace(".csv", "")
     output_file = os.path.join(analysis_dir, f"sleep_analysis_{timestamp}.png")
     rr_file = os.path.join(analysis_dir, f"sleep_rr_{timestamp}.csv")
+    results_file = os.path.join(analysis_dir, f"sleep_results_{timestamp}.txt")
 
-    if not args.force and os.path.exists(output_file) and os.path.exists(rr_file):
+    if not args.force and os.path.exists(output_file) and os.path.exists(rr_file) \
+            and os.path.exists(results_file):
         print(f"Already analyzed: {output_file}")
         print(f"                 {rr_file}")
+        print(f"                 {results_file}")
         print("(use --force to re-analyze)")
         return
 
@@ -247,20 +250,24 @@ def main():
     hrv = compute_hrv(rr_clean)
 
     # ─── Print results ───
-    print(f"\n{'='*55}")
-    print(f"  HEART RATE & HRV RESULTS")
-    print(f"{'='*55}")
-    print(f"  Recording duration:   {len(raw)/FS:.1f} seconds")
-    print(f"  Heartbeats detected:  {hrv['n_beats']}")
-    print(f"  Mean heart rate:      {hrv['mean_hr_bpm']:.1f} BPM")
-    print(f"  Mean RR interval:     {hrv['mean_rr_ms']:.0f} ms")
-    print(f"  RR range:             {hrv['min_rr_ms']:.0f}–{hrv['max_rr_ms']:.0f} ms")
-    print(f"")
-    print(f"  ── HRV Time Domain ──")
-    print(f"  SDNN:                 {hrv['sdnn_ms']:.1f} ms")
-    print(f"  RMSSD:                {hrv['rmssd_ms']:.1f} ms")
-    print(f"  pNN50:                {hrv['pnn50_pct']:.1f} %")
-    print(f"{'='*55}")
+    report_lines = [
+        "=" * 55,
+        "  HEART RATE & HRV RESULTS",
+        "=" * 55,
+        f"  Recording duration:   {len(raw)/FS:.1f} seconds",
+        f"  Heartbeats detected:  {hrv['n_beats']}",
+        f"  Mean heart rate:      {hrv['mean_hr_bpm']:.1f} BPM",
+        f"  Mean RR interval:     {hrv['mean_rr_ms']:.0f} ms",
+        f"  RR range:             {hrv['min_rr_ms']:.0f}–{hrv['max_rr_ms']:.0f} ms",
+        "",
+        "  ── HRV Time Domain ──",
+        f"  SDNN:                 {hrv['sdnn_ms']:.1f} ms",
+        f"  RMSSD:                {hrv['rmssd_ms']:.1f} ms",
+        f"  pNN50:                {hrv['pnn50_pct']:.1f} %",
+        "=" * 55,
+    ]
+    report = "\n".join(report_lines)
+    print(f"\n{report}")
 
     # ─── Plot ───
     fig, axes = plt.subplots(4, 1, figsize=(14, 14))
@@ -307,10 +314,15 @@ def main():
 
     plt.tight_layout()
 
-    # Save plot and RR intervals to analysis/ directory
+    # Save plot, results, and RR intervals to analysis/ directory
     os.makedirs(analysis_dir, exist_ok=True)
     plt.savefig(output_file, dpi=150)
     print(f"\nPlot saved: {output_file}")
+
+    # Save results text
+    with open(results_file, "w") as f:
+        f.write(report + "\n")
+    print(f"Results saved: {results_file}")
 
     # Save RR intervals
     pd.DataFrame({

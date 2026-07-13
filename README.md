@@ -99,6 +99,9 @@ Auto-finds the latest recording in `data/*/input/sleep_ppg_*.csv` and produces:
 - HRV metrics (SDNN, RMSSD, pNN50) with RR outlier rejection
 - 4-panel plot saved to `data/<timestamp>/analysis/sleep_analysis_<timestamp>.png`
 - RR intervals saved to `data/<timestamp>/analysis/sleep_rr_<timestamp>.csv`
+- Results summary saved to `data/<timestamp>/analysis/sleep_results_<timestamp>.txt`
+
+Skips recordings that already have all three outputs; pass `--force` to re-run.
 
 ## Google Health integration
 
@@ -158,6 +161,7 @@ data/
 │       ├── sleep_stages_<timestamp>.csv    (wav2sleep predictions)
 │       ├── hypnogram_<timestamp>.png        (hypnogram plot)
 │       ├── sleep_analysis_<timestamp>.png   (HR/HRV plot)
+│       ├── sleep_results_<timestamp>.txt    (HR/HRV results summary)
 │       └── sleep_rr_<timestamp>.csv         (RR intervals)
 └── google_sleep/
     └── google_sleep_<date>_to_<date>.csv    (Google Health API data)
