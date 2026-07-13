@@ -7,14 +7,19 @@ Loads the most recent PPG recording from data/, applies band-pass filtering,
 detects heartbeat pulses, computes instant heart rate and HRV metrics,
 and plots the results.
 
+Skips recordings that have already been analyzed (both the plot PNG and the
+RR CSV must exist in data/<timestamp>/analysis/). Use --force to re-analyze.
+
 Usage:
   uv run analyze_ppg.py                    # auto-finds latest recording
   uv run analyze_ppg.py data/ppg_xxx.csv   # specify a file
+  uv run analyze_ppg.py --force            # re-analyze even if outputs exist
 """
 
 import sys
 import os
 import glob
+import argparse
 import numpy as np
 import pandas as pd
 from scipy.signal import butter, filtfilt, find_peaks
@@ -140,9 +145,16 @@ def load_latest_ppg(data_dir="data"):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Analyze PPG for HR + HRV")
+    parser.add_argument("ppg_file", nargs="?", default=None,
+                        help="PPG CSV file (default: auto-find latest in data/*/input/)")
+    parser.add_argument("--force", action="store_true",
+                        help="Re-analyze even if outputs already exist")
+    args = parser.parse_args()
+
     # Get input file
-    if len(sys.argv) > 1:
-        ppg_file = sys.argv[1]
+    if args.ppg_file:
+        ppg_file = args.ppg_file
     else:
         ppg_file = load_latest_ppg()
         print(f"Auto-selected latest: {ppg_file}")
@@ -150,6 +162,19 @@ def main():
     if not os.path.exists(ppg_file):
         print(f"❌ File not found: {ppg_file}")
         sys.exit(1)
+
+    # Compute output paths and skip if both already exist (unless --force)
+    session_dir = os.path.dirname(os.path.dirname(ppg_file))  # data/<timestamp>/
+    analysis_dir = os.path.join(session_dir, "analysis")
+    timestamp = os.path.basename(ppg_file).replace("sleep_ppg_", "").replace(".csv", "")
+    output_file = os.path.join(analysis_dir, f"sleep_analysis_{timestamp}.png")
+    rr_file = os.path.join(analysis_dir, f"sleep_rr_{timestamp}.csv")
+
+    if not args.force and os.path.exists(output_file) and os.path.exists(rr_file):
+        print(f"Already analyzed: {output_file}")
+        print(f"                 {rr_file}")
+        print("(use --force to re-analyze)")
+        return
 
     # Load data
     df = pd.read_csv(ppg_file)
@@ -283,17 +308,11 @@ def main():
     plt.tight_layout()
 
     # Save plot and RR intervals to analysis/ directory
-    session_dir = os.path.dirname(os.path.dirname(ppg_file))  # data/<timestamp>/
-    analysis_dir = os.path.join(session_dir, "analysis")
     os.makedirs(analysis_dir, exist_ok=True)
-    timestamp = os.path.basename(ppg_file).replace("sleep_ppg_", "").replace(".csv", "")
-
-    output_file = os.path.join(analysis_dir, f"sleep_analysis_{timestamp}.png")
     plt.savefig(output_file, dpi=150)
     print(f"\nPlot saved: {output_file}")
 
     # Save RR intervals
-    rr_file = os.path.join(analysis_dir, f"sleep_rr_{timestamp}.csv")
     pd.DataFrame({
         "beat": np.arange(1, len(rr_clean) + 1),
         "rr_ms": rr_clean,
