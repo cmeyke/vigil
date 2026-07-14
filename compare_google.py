@@ -46,12 +46,16 @@ def parse_session_timestamp(session_dir):
 
 
 def load_google_data():
-    """Load and merge all Google sleep CSVs in data/google_sleep/.
+    """Load and merge all Google sleep-stage CSVs in data/google_sleep/.
 
     Returns a DataFrame sorted by StartTime with columns
     StartTime, EndTime (UTC tz-aware), StageLabel (0-3).
+
+    Only files starting with 'google_sleep' are loaded — the directory also
+    contains 'google_hrv_*.csv' files (no StartTime column) that must be
+    excluded.
     """
-    files = sorted(glob.glob(os.path.join(GOOGLE_DIR, "*.csv")))
+    files = sorted(glob.glob(os.path.join(GOOGLE_DIR, "google_sleep_*.csv")))
     if not files:
         raise FileNotFoundError(f"No Google sleep CSVs found in {GOOGLE_DIR}")
     frames = []
