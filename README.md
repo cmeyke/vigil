@@ -138,6 +138,33 @@ segments (variable length, not fixed 30 s epochs). Google's API exposes
 `STAGES` type only (AWAKE/LIGHT/DEEP/REM), not the RESTLESS label visible
 in the app.
 
+### Compare wav2sleep against Google
+
+```bash
+# Latest session with a sleep_stages CSV:
+uv run compare_google.py
+
+# Specific session:
+uv run compare_google.py data/20260711_231213/analysis/sleep_stages_20260711_231213.csv
+
+# All sessions:
+uv run compare_google.py --all
+```
+
+Aligns each 30 s vigil epoch (by absolute UTC time, using the recording's
+`timestamp_ns`) with the overlapping Google interval and reports:
+
+- Confusion matrix (rows=Google, cols=wav2sleep)
+- Per-stage precision / recall / F1
+- Overall agreement and Cohen's kappa
+- Stage distribution comparison (Google vs wav2sleep)
+
+Output: `data/<timestamp>/analysis/compare_google_<timestamp>.{csv,txt}`.
+The CSV has one row per epoch with both labels; the TXT is the printed
+report. Recordings without Google overlap are skipped. Requires the
+timestamp fix from `import-android.py` (recordings made with old app
+versions are auto-normalized on import).
+
 ## Fine-tuning (planned)
 
 wav2sleep over-predicts Wake (~20% vs Google's ~7%) because it was trained
@@ -162,7 +189,9 @@ data/
 │       ├── hypnogram_<timestamp>.png        (hypnogram plot)
 │       ├── sleep_analysis_<timestamp>.png   (HR/HRV plot)
 │       ├── sleep_results_<timestamp>.txt    (HR/HRV results summary)
-│       └── sleep_rr_<timestamp>.csv         (RR intervals)
+│       ├── sleep_rr_<timestamp>.csv         (RR intervals)
+│       ├── compare_google_<timestamp>.csv   (per-epoch Google vs wav2sleep)
+│       └── compare_google_<timestamp>.txt   (confusion matrix + metrics)
 └── google_sleep/
     └── google_sleep_<date>_to_<date>.csv    (Google Health API data)
 ```
@@ -179,6 +208,7 @@ The `data/` directory is gitignored (contains personal health data).
 | `plot_hypnogram.py` | Sleep stages CSV → dark-themed hypnogram PNG |
 | `analyze_ppg.py` | PPG → heart rate + HRV metrics + 4-panel plot |
 | `fetch_google_sleep.py` | Google Health API → sleep stages CSV (for comparison/ground truth) |
+| `compare_google.py` | Align wav2sleep predictions with Google sleep stages → confusion matrix, per-stage P/R/F1, kappa |
 | `live_hr.py` | Real-time HR + HRV terminal display with rolling buffer and sparkline |
 | `record_test.py` | 30-second test recording (for verifying sensor connectivity) |
 | `scan.py` | BLE scanner — find Polar devices by name |
