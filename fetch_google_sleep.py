@@ -284,22 +284,20 @@ def save_stages_csv(stages, output_path):
 def fetch_daily_hrv(creds, start_dt, end_dt):
     """Fetch daily HRV (RMSSD in ms) from Google Health API.
 
-    Returns a list of {date, rmssd_ms, non_rem_bpm, entropy} dicts. HRV
-    is a per-night summary computed by the Pixel Watch / Fitbit during
-    sleep, so each datapoint corresponds to one sleep session's date.
+    Returns a list of {date, rmssd_ms, non_rem_bpm, entropy, deep_rmssd_ms}
+    dicts, one per night, sorted by date ascending. HRV is a per-night
+    summary computed by the Pixel Watch / Fitbit during sleep.
+
+    Note: the documented AIP-160 filter `dailyHeartRateVariability.date` is
+    rejected by the API with INVALID_DATA_POINT_FILTER_DATA_TYPE_RESTRICTION
+    (as of 2026-07). We fetch all available datapoints (no filter) and
+    filter client-side by date.
     """
     headers = {"Authorization": f"Bearer {creds.token}"}
 
     url = f"{HEALTH_API_BASE}/users/me/dataTypes/daily-heart-rate-variability/dataPoints"
 
-    # dailyHeartRateVariability is a daily type keyed by civil date. Filter on
-    # the date field; the API accepts the date range in civil time.
-    start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    end_str = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    # AIP-160 filter on the daily point's date
-    filter_expr = f'dailyHeartRateVariability.date >= "{start_dt.date()}" AND dailyHeartRateVariability.date < "{end_dt.date()}"'
-
-    params = {"filter": filter_expr, "pageSize": 1000}
+    params = {"pageSize": 1000}
 
     all_datapoints = []
     next_page_token = None
@@ -321,6 +319,9 @@ def fetch_daily_hrv(creds, start_dt, end_dt):
         if not next_page_token:
             break
 
+    start_date = start_dt.date()
+    end_date = end_dt.date()
+
     rows = []
     for dp in all_datapoints:
         hrv = dp.get("dailyHeartRateVariability", {})
@@ -331,11 +332,20 @@ def fetch_daily_hrv(creds, start_dt, end_dt):
             f"{date_obj.get('year', 0):04d}-{date_obj.get('month', 0):02d}"
             f"-{date_obj.get('day', 0):02d}"
         )
+        # Client-side date filter (server-side filter is rejected by the API)
+        try:
+            from datetime import date as _date
+            d = _date(date_obj.get("year", 0), date_obj.get("month", 0), date_obj.get("day", 0))
+        except ValueError:
+            continue
+        if d < start_date or d >= end_date:
+            continue
         rows.append({
             "date": date_str,
             "rmssd_ms": hrv.get("averageHeartRateVariabilityMilliseconds"),
             "non_rem_bpm": hrv.get("nonRemHeartRateBeatsPerMinute"),
             "entropy": hrv.get("entropy"),
+            "deep_rmssd_ms": hrv.get("deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds"),
         })
     rows.sort(key=lambda r: r["date"])
     return rows
@@ -346,11 +356,12 @@ def save_hrv_csv(rows, output_path):
     import csv
     with open(output_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Date", "RMSSD_ms", "NonREM_HR_bpm", "Entropy"])
+        writer.writerow(["Date", "RMSSD_ms", "DeepSleep_RMSSD_ms", "NonREM_HR_bpm", "Entropy"])
         for r in rows:
             writer.writerow([
                 r["date"],
                 "" if r["rmssd_ms"] is None else f"{r['rmssd_ms']:.1f}",
+                "" if r["deep_rmssd_ms"] is None else f"{r['deep_rmssd_ms']:.1f}",
                 "" if r["non_rem_bpm"] is None else r["non_rem_bpm"],
                 "" if r["entropy"] is None else f"{r['entropy']:.4f}",
             ])
