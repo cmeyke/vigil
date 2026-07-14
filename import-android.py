@@ -30,8 +30,8 @@ Usage:
     uv run import-android.py --session 20260711_231213         # import one session
 
 After a successful import of a single session, the script prompts to run
-sleep_staging.py and plot_hypnogram.py automatically (skip with input
-redirected from a non-tty, or answer 'n').
+sleep_staging.py, plot_hypnogram.py, and analyze_ppg.py automatically
+(skip with input redirected from a non-tty, or answer 'n').
 """
 
 import argparse
@@ -284,14 +284,18 @@ def main():
         ppg_path = f"data/{last}/input/sleep_ppg_{last}.csv"
         stages_path = f"data/{last}/analysis/sleep_stages_{last}.csv"
         hypno_path = f"data/{last}/analysis/hypnogram_{last}.png"
+        analysis_path = f"data/{last}/analysis/sleep_analysis_{last}.png"
 
         print("\n  Next:")
         print(f"    uv run sleep_staging.py {ppg_path}")
         print(f"    uv run plot_hypnogram.py {stages_path}")
+        print(f"    uv run analyze_ppg.py {ppg_path}")
 
         if args.session or imported_count == 1:
             try:
-                answer = input("\n  Run sleep staging + hypnogram now? [Y/n] ").strip().lower()
+                answer = input(
+                    "\n  Run sleep staging + hypnogram + HR/HRV analysis now? [Y/n] "
+                ).strip().lower()
             except (EOFError, KeyboardInterrupt):
                 answer = "n"
             if answer in ("", "y", "yes"):
@@ -301,7 +305,7 @@ def main():
                     cwd=SCRIPT_DIR,
                 )
                 if ret.returncode != 0:
-                    print("  sleep_staging.py failed, skipping hypnogram.")
+                    print("  sleep_staging.py failed, skipping remaining steps.")
                     sys.exit(ret.returncode)
                 if not os.path.exists(os.path.join(SCRIPT_DIR, stages_path)):
                     print(f"  Expected output not found: {stages_path}")
@@ -312,10 +316,20 @@ def main():
                     cwd=SCRIPT_DIR,
                 )
                 if ret.returncode != 0:
-                    print("  plot_hypnogram.py failed.")
+                    print("  plot_hypnogram.py failed, skipping HR/HRV analysis.")
                     sys.exit(ret.returncode)
                 if os.path.exists(os.path.join(SCRIPT_DIR, hypno_path)):
                     print(f"\n  Hypnogram: {hypno_path}")
+                print(f"\n  → uv run analyze_ppg.py {ppg_path}")
+                ret = subprocess.run(
+                    ["uv", "run", "analyze_ppg.py", ppg_path],
+                    cwd=SCRIPT_DIR,
+                )
+                if ret.returncode != 0:
+                    print("  analyze_ppg.py failed.")
+                    sys.exit(ret.returncode)
+                if os.path.exists(os.path.join(SCRIPT_DIR, analysis_path)):
+                    print(f"\n  HR/HRV plot: {analysis_path}")
 
 
 if __name__ == "__main__":
