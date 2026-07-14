@@ -209,6 +209,7 @@ The `data/` directory is gitignored (contains personal health data).
 | `analyze_ppg.py` | PPG → heart rate + HRV metrics + 4-panel plot |
 | `fetch_google_sleep.py` | Google Health API → sleep stages CSV (for comparison/ground truth) |
 | `compare_google.py` | Align wav2sleep predictions with Google sleep stages → confusion matrix, per-stage P/R/F1, kappa |
+| `compare-hrv.py` | Match vigil RMSSD against Google nightly HRV → side-by-side table, Pearson r, scatter plot |
 | `live_hr.py` | Real-time HR + HRV terminal display with rolling buffer and sparkline |
 | `record_test.py` | 30-second test recording (for verifying sensor connectivity) |
 | `scan.py` | BLE scanner — find Polar devices by name |
