@@ -18,6 +18,7 @@ import os
 import subprocess
 import tempfile
 import shutil
+import argparse
 from collections import Counter
 import pandas as pd
 
@@ -43,7 +44,7 @@ def convert_ppg(ppg_csv: str) -> str:
     return tmp.name
 
 
-def run_wav2sleep(ppg_csv: str, output_dir: str) -> str:
+def run_wav2sleep(ppg_csv: str, output_dir: str, model_folder: str = "hf://joncarter/wav2sleep") -> str:
     """Run wav2sleep prediction. Returns predictions CSV path."""
     with tempfile.TemporaryDirectory() as tmpdir:
         # Convert PPG to wav2sleep format
@@ -64,7 +65,7 @@ from wav2sleep import predict_on_folder
 predict_on_folder(
     input_folder="{input_dir}",
     output_folder="{tmpdir}/output",
-    model_folder="hf://joncarter/wav2sleep",
+    model_folder="{model_folder}",
     signals=["PPG"],
     batch_size=1,
     max_length_hours={max_length_hours},
@@ -104,13 +105,25 @@ predict_on_folder(
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: uv run sleep_staging.py <ppg_csv>")
+    parser = argparse.ArgumentParser(
+        description="Run wav2sleep sleep staging on a PPG recording."
+    )
+    parser.add_argument("ppg_csv", nargs="?", default=None,
+                        help="PPG CSV file (e.g. data/<session>/input/sleep_ppg_<ts>.csv)")
+    parser.add_argument("--model-folder", type=str, default="hf://joncarter/wav2sleep",
+                        help="Model folder (HF Hub id or local path). "
+                             "Default: hf://joncarter/wav2sleep (the released base model). "
+                             "Use a fine-tuned model: --model-folder data/models/vigil_finetuned_<run>_best")
+    args = parser.parse_args()
+
+    if not args.ppg_csv:
+        print("Usage: uv run sleep_staging.py <ppg_csv> [--model-folder MODEL]")
         print("  Input:  data/<session>/input/sleep_ppg_<timestamp>.csv")
         print("  Output: data/<session>/analysis/sleep_stages_<timestamp>.csv")
+        print(f"  Model:  {args.model_folder}")
         sys.exit(1)
 
-    ppg_csv = sys.argv[1]
+    ppg_csv = args.ppg_csv
     if not os.path.exists(ppg_csv):
         print(f"Error: {ppg_csv} not found")
         sys.exit(1)
@@ -119,8 +132,9 @@ def main():
     session_dir = os.path.dirname(os.path.dirname(ppg_csv))  # data/<timestamp>/
     analysis_dir = os.path.join(session_dir, "analysis")
 
-    print(f"Running wav2sleep on {ppg_csv}...")
-    preds_path = run_wav2sleep(ppg_csv, analysis_dir)
+    model_label = os.path.basename(args.model_folder) if os.path.isdir(args.model_folder) else args.model_folder
+    print(f"Running wav2sleep ({model_label}) on {ppg_csv}...")
+    preds_path = run_wav2sleep(ppg_csv, analysis_dir, model_folder=args.model_folder)
 
     # Read predictions
     import csv
