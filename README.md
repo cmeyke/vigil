@@ -247,6 +247,9 @@ ln -sfn vigil_finetuned_v2_best data/models/vigil_finetuned_best
 # Or use a specific run directly without touching the symlink:
 uv run sleep_staging.py data/<ts>/input/sleep_ppg_<ts>.csv \
     --model-folder data/models/vigil_finetuned_v1_best
+
+# Or use the original wav2sleep model (overrides any fine-tuned symlink):
+uv run import-android.py --base-model
 ```
 
 ## Data directory structure

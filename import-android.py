@@ -209,6 +209,9 @@ def main():
                         help="Import a specific session timestamp (e.g. 20260711_231213)")
     parser.add_argument("--adb", type=str, default=ADB_PATH,
                         help=f"Path to adb binary (default: {ADB_PATH})")
+    parser.add_argument("--base-model", action="store_true",
+                        help="Use the original wav2sleep model (hf://joncarter/wav2sleep) "
+                             "instead of any fine-tuned model in data/models/")
     args = parser.parse_args()
 
     ADB_PATH = args.adb
@@ -293,12 +296,15 @@ def main():
         # vigil_finetuned_best -> vigil_finetuned_v1_best). If the canonical
         # symlink doesn't exist, fall back to the alphabetically-last
         # vigil_finetuned_*_best as a best-effort guess.
+        # --base-model overrides all of this and uses the original wav2sleep.
         import glob as _glob
         canonical_link = os.path.join(
             SCRIPT_DIR, "data", "models", "vigil_finetuned_best"
         )
         ft_model = None
-        if os.path.islink(canonical_link) and os.path.exists(canonical_link):
+        if args.base_model:
+            print("\n  --base-model: using original wav2sleep (hf://joncarter/wav2sleep)")
+        elif os.path.islink(canonical_link) and os.path.exists(canonical_link):
             ft_model = canonical_link
         else:
             finetuned_models = sorted(_glob.glob(os.path.join(
