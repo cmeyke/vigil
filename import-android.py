@@ -286,8 +286,19 @@ def main():
         hypno_path = f"data/{last}/analysis/hypnogram_{last}.png"
         analysis_path = f"data/{last}/analysis/sleep_analysis_{last}.png"
 
+        # Auto-detect a fine-tuned model if one exists
+        import glob as _glob
+        best_model_link = os.path.join(SCRIPT_DIR, "data", "models",
+                                       "vigil_finetuned_best")
+        finetuned_models = sorted(_glob.glob(os.path.join(
+            SCRIPT_DIR, "data", "models", "vigil_finetuned_*_best")))
+        ft_model = finetuned_models[-1] if finetuned_models else None
+
         print("\n  Next:")
-        print(f"    uv run sleep_staging.py {ppg_path}")
+        if ft_model:
+            print(f"    uv run sleep_staging.py --model-folder {ft_model} {ppg_path}")
+        else:
+            print(f"    uv run sleep_staging.py {ppg_path}")
         print(f"    uv run plot_hypnogram.py {stages_path}")
         print(f"    uv run analyze_ppg.py {ppg_path}")
 
@@ -299,11 +310,15 @@ def main():
             except (EOFError, KeyboardInterrupt):
                 answer = "n"
             if answer in ("", "y", "yes"):
-                print(f"\n  → uv run sleep_staging.py {ppg_path}")
-                ret = subprocess.run(
-                    ["uv", "run", "sleep_staging.py", ppg_path],
-                    cwd=SCRIPT_DIR,
-                )
+                # Use fine-tuned model if available, else the default HF model
+                staging_cmd = ["uv", "run", "sleep_staging.py"]
+                if ft_model:
+                    staging_cmd += ["--model-folder", ft_model]
+                    print(f"\n  → uv run sleep_staging.py --model-folder {ft_model} {ppg_path}")
+                else:
+                    print(f"\n  → uv run sleep_staging.py {ppg_path}")
+                staging_cmd += [ppg_path]
+                ret = subprocess.run(staging_cmd, cwd=SCRIPT_DIR)
                 if ret.returncode != 0:
                     print("  sleep_staging.py failed, skipping remaining steps.")
                     sys.exit(ret.returncode)
