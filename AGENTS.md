@@ -72,6 +72,19 @@ the scripts run correctly via `uv run`.
 Defaults: `MIN_NIGHTS_IDEAL = 10`, `MIN_NIGHTS_MEANINGFUL = 5` (defined in
 `finetune.py`). The README's "## Fine-tuning" section documents these.
 
+## Fine-tuning CV strategy
+
+`prepare_finetune_data.py` auto-selects the cross-validation strategy:
+
+| Paired nights N | CV strategy | Folds | Train per fold | Eval per fold |
+|---|---|---|---|---|
+| N < 30 | leave-one-out (LOO) | N | N-1 | 1 |
+| N ≥ 30 | k-fold | 10 | ~N×9/10 | ~N/10 |
+
+Override with `--cv {loo,kfold}` and `--folds N`. Session parquets are
+written ONCE to `data/finetune/<run>/sessions/` and symlinked into fold
+`train/`/`val/` dirs — no duplicated data (at 100 nights this saves ~69 GB).
+
 ## Data directory layout
 
 ```
@@ -80,7 +93,10 @@ data/
 │   ├── input/                     # raw PPG + ACC CSVs (don't modify)
 │   └── analysis/                  # derived: sleep_stages, hypnogram, HR/HRV, comparisons
 ├── google_sleep/                  # Google Health API exports
-├── finetune/<run_name>/fold_n/    # LOO-CV parquets for fine-tuning
+├── finetune/<run_name>/
+│   ├── sessions/*.parquet         # one per night (written once)
+│   ├── fold_n/{train,val}/*.parquet  # symlinks to sessions/
+│   └── folds.json                 # manifest with CV strategy + fold membership
 ├── models/                        # fine-tuned model checkpoints
 ├── hrv_comparison.csv             # vigil vs Google HRV comparison (from compare-hrv.py)
 └── ...

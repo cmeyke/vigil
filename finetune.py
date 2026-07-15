@@ -239,16 +239,17 @@ def get_model_config_dict():
 
 
 def run_fold(fold, manifest, run_name, args):
-    """Run one LOO fold: train on N-1, save model, eval on held-out."""
+    """Run one CV fold: train on the train set, save model, eval on held-out."""
     import torch
     from wav2sleep.api import load_model
 
     fold_idx = fold["fold"]
-    held_out = fold["held_out_session"]
+    held_out_sessions = fold["held_out_sessions"]  # list (1 for LOO, possibly >1 for kfold)
     fold_dir = os.path.join(FINETUNE_DIR, run_name, fold["fold_dir"])
     model_dir = os.path.join(MODELS_DIR, f"vigil_finetuned_{run_name}_fold{fold_idx}")
 
-    print(f"\n  Fold {fold_idx}/{len(manifest['folds'])-1}  (held out: {held_out})")
+    held_str = ", ".join(held_out_sessions)
+    print(f"\n  Fold {fold_idx}/{len(manifest['folds'])-1}  (held out: {held_str})")
     print(f"  Fold dir: {fold_dir}")
     print(f"  Model dir: {model_dir}")
 
@@ -266,7 +267,7 @@ def run_fold(fold, manifest, run_name, args):
     # Build datamodule for this fold
     dm = build_datamodule(fold_dir, num_classes=pretrained.num_classes, batch_size=args.batch_size)
     print(f"  Train sessions: {len(fold['train_sessions'])}")
-    print(f"  Val (held out): {held_out}")
+    print(f"  Val (held out): {held_str}")
 
     # Build trainer
     import lightning as L
@@ -315,90 +316,104 @@ def run_fold(fold, manifest, run_name, args):
     return model_dir
 
 
-def evaluate_held_out(model_dir, held_out_session, run_name, fold_idx, force_eval=False):
-    """Run sleep_staging.py + compare_google.py on the held-out session.
+def evaluate_held_out(model_dir, held_out_sessions, run_name, fold_idx, force_eval=False):
+    """Run sleep_staging.py + compare_google.py on each held-out session.
 
-    Returns a dict of metrics, or None if eval was skipped/failed.
+    For LOO there's one session; for kfold there may be several. Metrics
+    are averaged across held-out sessions in this fold.
+
+    Returns a dict of averaged metrics, or None if eval was skipped/failed.
     """
-    stages_csv = os.path.join(
-        DATA_DIR, held_out_session, "analysis", f"sleep_stages_{held_out_session}.csv"
-    )
-    cmp_csv = os.path.join(
-        DATA_DIR, held_out_session, "analysis", f"compare_google_{held_out_session}.csv"
-    )
-    cmp_txt = os.path.join(
-        DATA_DIR, held_out_session, "analysis", f"compare_google_{held_out_session}.txt"
-    )
-
-    # If a fine-tuned comparison already exists and we're not forcing, skip
-    ft_cmp_marker = os.path.join(
-        DATA_DIR, held_out_session, "analysis",
-        f"compare_google_{held_out_session}_ft_fold{fold_idx}.txt"
-    )
-    if os.path.exists(ft_cmp_marker) and not force_eval:
-        print(f"  Eval already done — skipping (use --force-eval to re-run)")
-        return parse_metrics(ft_cmp_marker)
-
-    # Back up any existing baseline comparison so we can restore it after
-    backup_paths = {}
-    for p in [stages_csv, cmp_csv, cmp_txt]:
-        if os.path.exists(p):
-            backup_paths[p] = p + ".baseline_backup"
-            shutil.copy2(p, backup_paths[p])
-
-    try:
-        # Run sleep_staging.py with the fine-tuned model
-        ppg_path = os.path.join(
-            DATA_DIR, held_out_session, "input", f"sleep_ppg_{held_out_session}.csv"
-        )
-        print(f"  → sleep_staging.py --model-folder {model_dir} {ppg_path}")
-        ret = subprocess.run(
-            ["uv", "run", "sleep_staging.py", "--model-folder", model_dir, ppg_path],
-            cwd=SCRIPT_DIR,
-            capture_output=True, text=True,
-        )
-        if ret.returncode != 0:
-            print(f"  sleep_staging.py failed: {ret.stderr[:500]}")
-            return None
-
-        # Run compare_google.py to get fresh metrics
-        print(f"  → compare_google.py {stages_csv}")
-        ret = subprocess.run(
-            ["uv", "run", "compare_google.py", "--force", stages_csv],
-            cwd=SCRIPT_DIR,
-            capture_output=True, text=True,
-        )
-        if ret.returncode != 0:
-            print(f"  compare_google.py failed: {ret.stderr[:500]}")
-            return None
-
-        # Save the fine-tuned comparison separately so it isn't overwritten
-        # by a subsequent baseline compare_google.py run
-        ft_cmp_csv = os.path.join(
-            DATA_DIR, held_out_session, "analysis",
-            f"compare_google_{held_out_session}_ft_fold{fold_idx}.csv"
-        )
+    all_metrics = []
+    for session in held_out_sessions:
         ft_cmp_txt = os.path.join(
-            DATA_DIR, held_out_session, "analysis",
-            f"compare_google_{held_out_session}_ft_fold{fold_idx}.txt"
+            DATA_DIR, session, "analysis",
+            f"compare_google_{session}_ft_fold{fold_idx}.txt"
         )
-        if os.path.exists(cmp_csv):
-            shutil.copy2(cmp_csv, ft_cmp_csv)
-        if os.path.exists(cmp_txt):
-            shutil.copy2(cmp_txt, ft_cmp_txt)
+        if os.path.exists(ft_cmp_txt) and not force_eval:
+            print(f"  {session}: eval already done — skipping")
+            all_metrics.append(parse_metrics(ft_cmp_txt))
+            continue
 
-        metrics = parse_metrics(ft_cmp_txt)
-        if metrics:
-            print(f"  Held-out metrics: agreement={metrics.get('agreement','?')}%  "
-                  f"kappa={metrics.get('kappa','?')}")
-        return metrics
+        stages_csv = os.path.join(
+            DATA_DIR, session, "analysis", f"sleep_stages_{session}.csv"
+        )
+        cmp_csv = os.path.join(
+            DATA_DIR, session, "analysis", f"compare_google_{session}.csv"
+        )
+        cmp_txt = os.path.join(
+            DATA_DIR, session, "analysis", f"compare_google_{session}.txt"
+        )
 
-    finally:
-        # Restore baseline comparison files
-        for p, backup in backup_paths.items():
-            if os.path.exists(backup):
-                shutil.copy2(backup, p)
-                os.unlink(backup)
+        # Back up baseline comparison files so we can restore after
+        backups = {}
+        for p in [stages_csv, cmp_csv, cmp_txt]:
+            if os.path.exists(p):
+                backups[p] = p + ".baseline_backup"
+                shutil.copy2(p, backups[p])
+
+        try:
+            ppg_path = os.path.join(
+                DATA_DIR, session, "input", f"sleep_ppg_{session}.csv"
+            )
+            print(f"  → sleep_staging.py --model-folder {model_dir} {ppg_path}")
+            ret = subprocess.run(
+                ["uv", "run", "sleep_staging.py", "--model-folder", model_dir, ppg_path],
+                cwd=SCRIPT_DIR,
+                capture_output=True, text=True,
+            )
+            if ret.returncode != 0:
+                print(f"  sleep_staging.py failed for {session}: {ret.stderr[:500]}")
+                continue
+
+            print(f"  → compare_google.py {stages_csv}")
+            ret = subprocess.run(
+                ["uv", "run", "compare_google.py", "--force", stages_csv],
+                cwd=SCRIPT_DIR,
+                capture_output=True, text=True,
+            )
+            if ret.returncode != 0:
+                print(f"  compare_google.py failed for {session}: {ret.stderr[:500]}")
+                continue
+
+            # Save the fine-tuned comparison with fold suffix
+            ft_cmp_csv = os.path.join(
+                DATA_DIR, session, "analysis",
+                f"compare_google_{session}_ft_fold{fold_idx}.csv"
+            )
+            ft_cmp_txt = os.path.join(
+                DATA_DIR, session, "analysis",
+                f"compare_google_{session}_ft_fold{fold_idx}.txt"
+            )
+            if os.path.exists(cmp_csv):
+                shutil.copy2(cmp_csv, ft_cmp_csv)
+            if os.path.exists(cmp_txt):
+                shutil.copy2(cmp_txt, ft_cmp_txt)
+
+            metrics = parse_metrics(ft_cmp_txt)
+            if metrics:
+                print(f"  {session}: agreement={metrics.get('agreement','?')}%  "
+                      f"kappa={metrics.get('kappa','?')}")
+            all_metrics.append(metrics)
+
+        finally:
+            for p, backup in backups.items():
+                if os.path.exists(backup):
+                    shutil.copy2(backup, p)
+                    os.unlink(backup)
+
+    # Aggregate metrics across held-out sessions (average)
+    if not all_metrics or all(m is None for m in all_metrics):
+        return None
+    valid = [m for m in all_metrics if m]
+    if not valid:
+        return None
+    avg = {}
+    for key in ["epochs", "agreement", "kappa"]:
+        vals = [m[key] for m in valid if key in m]
+        if vals:
+            avg[key] = sum(vals) / len(vals)
+    return avg
 
 
 def parse_metrics(txt_path):
@@ -532,7 +547,10 @@ def main():
     # Load manifest
     manifest = load_run_manifest(args.run_name)
     n_nights = manifest["num_sessions"]
+    cv_strategy = manifest.get("cv_strategy", "loo")
+    n_folds = manifest["num_folds"]
     print(f"\n  Paired nights: {n_nights}")
+    print(f"  CV strategy:   {cv_strategy} ({n_folds} folds)")
 
     # Gating
     if args.min_nights > 0 and n_nights < args.min_nights:
@@ -550,7 +568,8 @@ def main():
         print(f"  Results may not generalize; treat as experimental until {MIN_NIGHTS_IDEAL}+ are collected.")
 
     if n_nights < MIN_NIGHTS_MEANINGFUL:
-        print(f"\n  Warning: LOO-CV with N={n_nights} folds — each fold trains on {n_nights-1} nights.")
+        train_per_fold = len(manifest["folds"][0]["train_sessions"]) if manifest["folds"] else n_nights - 1
+        print(f"\n  Warning: {cv_strategy.upper()} with N={n_nights} — each fold trains on {train_per_fold} nights.")
         print(f"  Per-fold metrics will be highly noisy; treat the mean as indicative only.")
 
     # Plan folds
@@ -564,7 +583,8 @@ def main():
     if args.dry_run:
         print(f"\n  --dry-run: would run {len(folds_to_run)} fold(s):")
         for f in folds_to_run:
-            print(f"    fold {f['fold']}: held_out={f['held_out_session']}, "
+            held = ", ".join(f["held_out_sessions"])
+            print(f"    fold {f['fold']}: held_out={held}, "
                   f"train={len(f['train_sessions'])} sessions")
         return
 
@@ -580,14 +600,14 @@ def main():
     fold_results = []
     for fold in folds_to_run:
         model_dir = run_fold(fold, manifest, args.run_name, args)
-        # Evaluate on held-out session
+        # Evaluate on held-out session(s)
         metrics = evaluate_held_out(
-            model_dir, fold["held_out_session"], args.run_name, fold["fold"],
+            model_dir, fold["held_out_sessions"], args.run_name, fold["fold"],
             force_eval=args.force_eval,
         )
         fold_results.append({
             "fold": fold["fold"],
-            "held_out_session": fold["held_out_session"],
+            "held_out_session": ", ".join(fold["held_out_sessions"]),
             "epochs": metrics.get("epochs") if metrics else None,
             "agreement": metrics.get("agreement") if metrics else None,
             "kappa": metrics.get("kappa") if metrics else None,
@@ -610,15 +630,30 @@ def collect_existing_results(manifest, run_name, exclude=None):
     for fold in manifest["folds"]:
         if fold["fold"] in exclude:
             continue
-        ft_txt = os.path.join(
-            DATA_DIR, fold["held_out_session"], "analysis",
-            f"compare_google_{fold['held_out_session']}_ft_fold{fold['fold']}.txt"
-        )
-        metrics = parse_metrics(ft_txt)
+        # For kfold, a fold may hold out multiple sessions — aggregate metrics
+        # from all held-out sessions' _ft_fold<n>.txt files.
+        all_metrics = []
+        for session in fold["held_out_sessions"]:
+            ft_txt = os.path.join(
+                DATA_DIR, session, "analysis",
+                f"compare_google_{session}_ft_fold{fold['fold']}.txt"
+            )
+            m = parse_metrics(ft_txt)
+            if m:
+                all_metrics.append(m)
+        if all_metrics:
+            avg = {}
+            for key in ["epochs", "agreement", "kappa"]:
+                vals = [m[key] for m in all_metrics if key in m]
+                if vals:
+                    avg[key] = sum(vals) / len(vals)
+            metrics = avg
+        else:
+            metrics = None
         model_dir = os.path.join(MODELS_DIR, f"vigil_finetuned_{run_name}_fold{fold['fold']}")
         results.append({
             "fold": fold["fold"],
-            "held_out_session": fold["held_out_session"],
+            "held_out_session": ", ".join(fold["held_out_sessions"]),
             "epochs": metrics.get("epochs") if metrics else None,
             "agreement": metrics.get("agreement") if metrics else None,
             "kappa": metrics.get("kappa") if metrics else None,

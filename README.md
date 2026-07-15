@@ -178,7 +178,10 @@ on clinical PSG data, not Verity Sense PPG. Fine-tuning on paired nights
 - Strategy: freeze signal encoders + epoch mixer, train only sequence mixer
   + classifier at low LR (conservative — adapts the head to PPG-domain
   features without destroying learned representations)
-- Evaluation: leave-one-out cross-validation (train on N-1, eval on held-out 1)
+- Evaluation: cross-validation. Strategy auto-selected by night count:
+  - **N < 30**: leave-one-out (N folds, each trains on N-1, eval on 1)
+  - **N ≥ 30**: 10-fold (each trains on 90% of nights, eval on 10%)
+  - Override with `--cv {loo,kfold}` and `--folds N`
 - wav2sleep's `SleepLightningModule` is used directly from a checkout of the
   [wav2sleep repo](https://github.com/joncarter1/wav2sleep) — vigil stays
   pure-Python with no torch dependency in its main venv
@@ -206,8 +209,10 @@ uv run import-android.py
 uv run fetch_google_sleep.py --days 30
 uv run compare_google.py --all          # produces compare_google_<ts>.csv per night
 
-# 2. Prepare parquet training data (LOO-CV folds)
+# 2. Prepare parquet training data (CV folds — auto: LOO if N<30, 10-fold otherwise)
 uv run prepare_finetune_data.py --run-name myrun
+# Override CV strategy:
+uv run prepare_finetune_data.py --run-name myrun --cv kfold --folds 5
 
 # 3. Fine-tune (default needs 10+ nights; override for testing)
 uv run finetune.py --run-name myrun                    # default gate: 10+ nights
@@ -270,9 +275,10 @@ data/
 │       └── compare_google_<timestamp>.txt   (confusion matrix + metrics)
 ├── finetune/
 │   └── <run_name>/
-│       ├── fold_0/{train,val}/*.parquet     (LOO-CV fold parquets)
+│       ├── sessions/*.parquet                # one per night (written once)
+│       ├── fold_0/{train,val}/*.parquet       # symlinks to sessions/
 │       ├── fold_1/{train,val}/*.parquet
-│       └── folds.json                        (manifest: held-out session per fold)
+│       └── folds.json                         # manifest: CV strategy + fold membership
 ├── models/
 │   └── vigil_finetuned_<run_name>_best/      (fine-tuned model: config.yaml + state_dict.pth)
 └── google_sleep/
