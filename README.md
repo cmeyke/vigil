@@ -178,6 +178,10 @@ on clinical PSG data, not Verity Sense PPG. Fine-tuning on paired nights
 - Strategy: freeze signal encoders + epoch mixer, train only sequence mixer
   + classifier at low LR (conservative — adapts the head to PPG-domain
   features without destroying learned representations)
+- Each run starts fresh from the base wav2sleep model
+  (`hf://joncarter/wav2sleep`), never from a prior fine-tuned model. This
+  keeps runs independent and comparable (v2 vs v1 differs only in training
+  data) and avoids compounding overfitting across iterations.
 - Evaluation: cross-validation. Strategy auto-selected by night count:
   - **N < 30**: leave-one-out (N folds, each trains on N-1, eval on 1)
   - **N ≥ 30**: 10-fold (each trains on 90% of nights, eval on 10%)
