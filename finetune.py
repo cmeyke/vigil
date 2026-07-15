@@ -468,6 +468,24 @@ def aggregate_results(run_name, fold_results):
         print(f"  Best model (fold {best_fold['fold']}, kappa={best_fold['kappa']:.3f}):")
         print(f"    {best_dir}")
         print(f"    → symlinked as {best_link}")
+
+        # Update the canonical 'vigil_finetuned_best' pointer so import-android.py
+        # picks up this run automatically. Only do this if the canonical link
+        # doesn't exist or already points at a previous run (don't clobber a
+        # user's explicit choice silently — print what we did).
+        canonical = os.path.join(MODELS_DIR, "vigil_finetuned_best")
+        prev_target = os.path.realpath(canonical) if os.path.islink(canonical) else None
+        if prev_target != os.path.abspath(best_dir):
+            if os.path.islink(canonical):
+                os.unlink(canonical)
+            elif os.path.exists(canonical):
+                shutil.rmtree(canonical)
+            os.symlink(os.path.abspath(best_dir), canonical)
+            if prev_target:
+                print(f"  Updated active model: {prev_target} → {best_dir}")
+            else:
+                print(f"  Set as active model: {canonical} → {best_dir}")
+            print(f"  (import-android.py and sleep_staging.py will now use this model)")
         if mean_k < 0:
             print(f"\n  Warning: mean kappa < 0 — fine-tuning did not help.")
             print(f"  Consider collecting more paired nights (target: 10+).")

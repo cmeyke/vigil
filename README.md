@@ -228,7 +228,26 @@ sleep staging prompt if present.
 
 Per-fold held-out metrics are saved to `data/finetune/<run>/results.csv`.
 The best model (highest mean Cohen's kappa across folds) is symlinked as
-`data/models/vigil_finetuned_<run>_best/`.
+`data/models/vigil_finetuned_<run>_best/`. `finetune.py` also updates a
+canonical `data/models/vigil_finetuned_best` symlink to point at the most
+recently trained run — this is what `import-android.py` uses by default.
+
+### Selecting which fine-tuned model is active
+
+If you have multiple runs (`v1`, `v2`, ...) and want to switch which one
+`import-android.py` uses, repoint the canonical symlink:
+
+```bash
+# See available runs:
+ls -l data/models/vigil_finetuned_*_best/
+
+# Point the active-model symlink at a different run:
+ln -sfn vigil_finetuned_v2_best data/models/vigil_finetuned_best
+
+# Or use a specific run directly without touching the symlink:
+uv run sleep_staging.py data/<ts>/input/sleep_ppg_<ts>.csv \
+    --model-folder data/models/vigil_finetuned_v1_best
+```
 
 ## Data directory structure
 

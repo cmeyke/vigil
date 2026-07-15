@@ -286,17 +286,35 @@ def main():
         hypno_path = f"data/{last}/analysis/hypnogram_{last}.png"
         analysis_path = f"data/{last}/analysis/sleep_analysis_{last}.png"
 
-        # Auto-detect a fine-tuned model if one exists
+        # Auto-detect the active fine-tuned model. The canonical pointer is
+        # data/models/vigil_finetuned_best — a symlink you point at the run
+        # you want active (finetune.py creates per-run _best symlinks like
+        # vigil_finetuned_v1_best; you choose which one is active by symlinking
+        # vigil_finetuned_best -> vigil_finetuned_v1_best). If the canonical
+        # symlink doesn't exist, fall back to the alphabetically-last
+        # vigil_finetuned_*_best as a best-effort guess.
         import glob as _glob
-        best_model_link = os.path.join(SCRIPT_DIR, "data", "models",
-                                       "vigil_finetuned_best")
-        finetuned_models = sorted(_glob.glob(os.path.join(
-            SCRIPT_DIR, "data", "models", "vigil_finetuned_*_best")))
-        ft_model = finetuned_models[-1] if finetuned_models else None
+        canonical_link = os.path.join(
+            SCRIPT_DIR, "data", "models", "vigil_finetuned_best"
+        )
+        ft_model = None
+        if os.path.islink(canonical_link) and os.path.exists(canonical_link):
+            ft_model = canonical_link
+        else:
+            finetuned_models = sorted(_glob.glob(os.path.join(
+                SCRIPT_DIR, "data", "models", "vigil_finetuned_*_best")))
+            if finetuned_models:
+                ft_model = finetuned_models[-1]
+                print(f"\n  Note: no 'vigil_finetuned_best' symlink in data/models/.")
+                print(f"        Falling back to alphabetically-last: {ft_model}")
+                print(f"        To pin a specific run, create the symlink:")
+                print(f"          ln -s vigil_finetuned_v1_best data/models/vigil_finetuned_best")
 
         print("\n  Next:")
         if ft_model:
+            target = os.path.realpath(ft_model) if os.path.islink(ft_model) else ft_model
             print(f"    uv run sleep_staging.py --model-folder {ft_model} {ppg_path}")
+            print(f"    (active fine-tuned model: {os.path.basename(target)})")
         else:
             print(f"    uv run sleep_staging.py {ppg_path}")
         print(f"    uv run plot_hypnogram.py {stages_path}")
