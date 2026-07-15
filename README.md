@@ -165,16 +165,70 @@ report. Recordings without Google overlap are skipped. Requires the
 timestamp fix from `import-android.py` (recordings made with old app
 versions are auto-normalized on import).
 
-## Fine-tuning (planned)
+## Fine-tuning
 
 wav2sleep over-predicts Wake (~20% vs Google's ~7%) because it was trained
 on clinical PSG data, not Verity Sense PPG. Fine-tuning on paired nights
-(vigil PPG + Google labels) is the planned fix.
+(vigil PPG + Google labels) is the fix.
 
 - Each paired night = one training sample (PPG input + Google's stage labels)
-- Need 5+ paired nights for meaningful fine-tuning, 10+ ideal
-- wav2sleep has a `trainer` module for continued training
+- Fine-tuning requires **10+ paired nights by default** (the "ideal" threshold)
+- 5+ nights can be enabled with `--min-nights 5` (the "meaningful" threshold)
+- Fewer nights can be used for pipeline testing with `--min-nights N`
+- Strategy: freeze signal encoders + epoch mixer, train only sequence mixer
+  + classifier at low LR (conservative — adapts the head to PPG-domain
+  features without destroying learned representations)
+- Evaluation: leave-one-out cross-validation (train on N-1, eval on held-out 1)
+- wav2sleep's `SleepLightningModule` is used directly from a checkout of the
+  [wav2sleep repo](https://github.com/joncarter1/wav2sleep) — vigil stays
+  pure-Python with no torch dependency in its main venv
 - Currently collecting paired nights
+
+### Prerequisites (one-time)
+
+```bash
+# Create the wav2sleep venv (separate from vigil's venv due to numpy conflict)
+cd ~/code/python/ai
+uv venv wav2sleep-env --python 3.12
+uv pip install --python wav2sleep-env/.venv/bin/python \
+    "git+https://github.com/joncarter1/wav2sleep.git" \
+    lightning hydra-core mlflow
+```
+
+A CUDA-capable GPU is required for fine-tuning. The data-prep step
+(`prepare_finetune_data.py`) does not need GPU and runs in vigil's venv.
+
+### Workflow
+
+```bash
+# 1. Collect paired nights: import vigil PPG + fetch Google labels
+uv run import-android.py
+uv run fetch_google_sleep.py --days 30
+uv run compare_google.py --all          # produces compare_google_<ts>.csv per night
+
+# 2. Prepare parquet training data (LOO-CV folds)
+uv run prepare_finetune_data.py --run-name myrun
+
+# 3. Fine-tune (default needs 10+ nights; override for testing)
+uv run finetune.py --run-name myrun                    # default gate: 10+ nights
+uv run finetune.py --run-name myrun --min-nights 5     # meaningful band
+uv run finetune.py --run-name myrun --min-nights 3     # testing only
+uv run finetune.py --run-name myrun --dry-run          # plan without training
+uv run finetune.py --run-name myrun --resume           # skip completed folds
+
+# 4. Use the fine-tuned model for future sleep staging
+uv run sleep_staging.py data/<ts>/input/sleep_ppg_<ts>.csv \
+    --model-folder data/models/vigil_finetuned_myrun_best
+```
+
+The fine-tuned model is saved as `data/models/vigil_finetuned_<run>_best/`
+(a `config.yaml` + `state_dict.pth` folder, same format as wav2sleep's HF
+release). `import-android.py` auto-detects it and uses it for the post-import
+sleep staging prompt if present.
+
+Per-fold held-out metrics are saved to `data/finetune/<run>/results.csv`.
+The best model (highest mean Cohen's kappa across folds) is symlinked as
+`data/models/vigil_finetuned_<run>_best/`.
 
 ## Data directory structure
 
@@ -192,6 +246,13 @@ data/
 │       ├── sleep_rr_<timestamp>.csv         (RR intervals)
 │       ├── compare_google_<timestamp>.csv   (per-epoch Google vs wav2sleep)
 │       └── compare_google_<timestamp>.txt   (confusion matrix + metrics)
+├── finetune/
+│   └── <run_name>/
+│       ├── fold_0/{train,val}/*.parquet     (LOO-CV fold parquets)
+│       ├── fold_1/{train,val}/*.parquet
+│       └── folds.json                        (manifest: held-out session per fold)
+├── models/
+│   └── vigil_finetuned_<run_name>_best/      (fine-tuned model: config.yaml + state_dict.pth)
 └── google_sleep/
     └── google_sleep_<date>_to_<date>.csv    (Google Health API data)
 ```
@@ -204,12 +265,14 @@ The `data/` directory is gitignored (contains personal health data).
 |---|---|
 | `record_sleep.py` | Overnight BLE recording (PPG + ACC → CSV) with auto-reconnect, `--hours N` auto-stop |
 | `import-android.py` | Pull new sleep recordings from a connected Android phone via `adb` (skips already-imported sessions) |
-| `sleep_staging.py` | PPG → wav2sleep inference → sleep stage predictions CSV |
+| `sleep_staging.py` | PPG → wav2sleep inference → sleep stage predictions CSV. `--model-folder` selects base vs fine-tuned model |
 | `plot_hypnogram.py` | Sleep stages CSV → dark-themed hypnogram PNG |
 | `analyze_ppg.py` | PPG → heart rate + HRV metrics + 4-panel plot |
-| `fetch_google_sleep.py` | Google Health API → sleep stages CSV (for comparison/ground truth) |
+| `fetch_google_sleep.py` | Google Health API → sleep stages + nightly HRV CSV (for comparison/ground truth) |
 | `compare_google.py` | Align wav2sleep predictions with Google sleep stages → confusion matrix, per-stage P/R/F1, kappa |
 | `compare-hrv.py` | Match vigil RMSSD against Google nightly HRV → side-by-side table, Pearson r, scatter plot |
+| `prepare_finetune_data.py` | Convert paired nights to wav2sleep parquet format (LOO-CV folds) |
+| `finetune.py` | Fine-tune wav2sleep on paired nights (LOO-CV, conservative freeze). Runs in wav2sleep venv |
 | `live_hr.py` | Real-time HR + HRV terminal display with rolling buffer and sparkline |
 | `record_test.py` | 30-second test recording (for verifying sensor connectivity) |
 | `scan.py` | BLE scanner — find Polar devices by name |
