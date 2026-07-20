@@ -29,8 +29,8 @@ Usage:
     uv run import-android.py --force                           # re-import all
     uv run import-android.py --session 20260711_231213         # import one session
 
-After a successful import of a single session, the script prompts to run
-sleep_staging.py, plot_hypnogram.py, and analyze_ppg.py automatically
+After a successful import, the script prompts to run sleep_staging.py,
+plot_hypnogram.py, and analyze_ppg.py on ALL newly imported sessions
 (skip with input redirected from a non-tty, or answer 'n').
 """
 
@@ -273,22 +273,18 @@ def main():
         return
 
     imported_count = 0
+    imported_sessions = []
     for s in to_import:
         print(f"\n  Importing {s}...")
         if pull_session(s, force=args.force):
             imported_count += 1
+            imported_sessions.append(s)
 
     print()
     print("=" * 50)
     print(f"  Imported {imported_count} session(s)")
     print("=" * 50)
     if imported_count > 0:
-        last = to_import[-1]
-        ppg_path = f"data/{last}/input/sleep_ppg_{last}.csv"
-        stages_path = f"data/{last}/analysis/sleep_stages_{last}.csv"
-        hypno_path = f"data/{last}/analysis/hypnogram_{last}.png"
-        analysis_path = f"data/{last}/analysis/sleep_analysis_{last}.png"
-
         # Auto-detect the active fine-tuned model. The canonical pointer is
         # data/models/vigil_finetuned_best — a symlink you point at the run
         # you want active (finetune.py creates per-run _best symlinks like
@@ -316,60 +312,87 @@ def main():
                 print(f"        To pin a specific run, create the symlink:")
                 print(f"          ln -s vigil_finetuned_v1_best data/models/vigil_finetuned_best")
 
+        # Print "Next:" hints for each imported session
         print("\n  Next:")
+        for s in imported_sessions:
+            ppg = f"data/{s}/input/sleep_ppg_{s}.csv"
+            stages = f"data/{s}/analysis/sleep_stages_{s}.csv"
+            if ft_model:
+                print(f"    uv run sleep_staging.py --model-folder {ft_model} {ppg}")
+            else:
+                print(f"    uv run sleep_staging.py {ppg}")
+            print(f"    uv run plot_hypnogram.py {stages}")
+            print(f"    uv run analyze_ppg.py {ppg}")
         if ft_model:
             target = os.path.realpath(ft_model) if os.path.islink(ft_model) else ft_model
-            print(f"    uv run sleep_staging.py --model-folder {ft_model} {ppg_path}")
             print(f"    (active fine-tuned model: {os.path.basename(target)})")
-        else:
-            print(f"    uv run sleep_staging.py {ppg_path}")
-        print(f"    uv run plot_hypnogram.py {stages_path}")
-        print(f"    uv run analyze_ppg.py {ppg_path}")
 
-        if imported_count > 0:
-            try:
-                answer = input(
-                    "\n  Run sleep staging + hypnogram + HR/HRV analysis on the latest "
-                    f"session ({last})? [Y/n] "
-                ).strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                answer = "n"
-            if answer in ("", "y", "yes"):
-                # Use fine-tuned model if available, else the default HF model
-                staging_cmd = ["uv", "run", "sleep_staging.py"]
-                if ft_model:
-                    staging_cmd += ["--model-folder", ft_model]
-                    print(f"\n  → uv run sleep_staging.py --model-folder {ft_model} {ppg_path}")
-                else:
-                    print(f"\n  → uv run sleep_staging.py {ppg_path}")
-                staging_cmd += [ppg_path]
-                ret = subprocess.run(staging_cmd, cwd=SCRIPT_DIR)
-                if ret.returncode != 0:
-                    print("  sleep_staging.py failed, skipping remaining steps.")
-                    sys.exit(ret.returncode)
-                if not os.path.exists(os.path.join(SCRIPT_DIR, stages_path)):
-                    print(f"  Expected output not found: {stages_path}")
-                    sys.exit(1)
-                print(f"\n  → uv run plot_hypnogram.py {stages_path}")
-                ret = subprocess.run(
-                    ["uv", "run", "plot_hypnogram.py", stages_path],
-                    cwd=SCRIPT_DIR,
-                )
-                if ret.returncode != 0:
-                    print("  plot_hypnogram.py failed, skipping HR/HRV analysis.")
-                    sys.exit(ret.returncode)
-                if os.path.exists(os.path.join(SCRIPT_DIR, hypno_path)):
-                    print(f"\n  Hypnogram: {hypno_path}")
-                print(f"\n  → uv run analyze_ppg.py {ppg_path}")
-                ret = subprocess.run(
-                    ["uv", "run", "analyze_ppg.py", ppg_path],
-                    cwd=SCRIPT_DIR,
-                )
-                if ret.returncode != 0:
-                    print("  analyze_ppg.py failed.")
-                    sys.exit(ret.returncode)
-                if os.path.exists(os.path.join(SCRIPT_DIR, analysis_path)):
-                    print(f"\n  HR/HRV plot: {analysis_path}")
+        # Offer to run the full pipeline on all newly imported sessions
+        try:
+            if len(imported_sessions) == 1:
+                prompt = (f"\n  Run sleep staging + hypnogram + HR/HRV analysis on "
+                          f"session {imported_sessions[0]}? [Y/n] ")
+            else:
+                prompt = (f"\n  Run sleep staging + hypnogram + HR/HRV analysis on all "
+                          f"{len(imported_sessions)} newly imported sessions? [Y/n] ")
+            answer = input(prompt).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+        if answer in ("", "y", "yes"):
+            for s in imported_sessions:
+                run_analysis_pipeline(s, ft_model)
+
+
+def run_analysis_pipeline(session, ft_model):
+    """Run sleep_staging.py + plot_hypnogram.py + analyze_ppg.py on one session."""
+    ppg_path = f"data/{session}/input/sleep_ppg_{session}.csv"
+    stages_path = f"data/{session}/analysis/sleep_stages_{session}.csv"
+    hypno_path = f"data/{session}/analysis/hypnogram_{session}.png"
+    analysis_path = f"data/{session}/analysis/sleep_analysis_{session}.png"
+
+    print(f"\n{'─' * 50}")
+    print(f"  Analyzing {session}")
+    print(f"{'─' * 50}")
+
+    # sleep_staging.py
+    staging_cmd = ["uv", "run", "sleep_staging.py"]
+    if ft_model:
+        staging_cmd += ["--model-folder", ft_model]
+        print(f"  → uv run sleep_staging.py --model-folder {ft_model} {ppg_path}")
+    else:
+        print(f"  → uv run sleep_staging.py {ppg_path}")
+    staging_cmd += [ppg_path]
+    ret = subprocess.run(staging_cmd, cwd=SCRIPT_DIR)
+    if ret.returncode != 0:
+        print(f"  sleep_staging.py failed for {session}, skipping remaining steps.")
+        return
+    if not os.path.exists(os.path.join(SCRIPT_DIR, stages_path)):
+        print(f"  Expected output not found: {stages_path}")
+        return
+
+    # plot_hypnogram.py
+    print(f"\n  → uv run plot_hypnogram.py {stages_path}")
+    ret = subprocess.run(
+        ["uv", "run", "plot_hypnogram.py", stages_path],
+        cwd=SCRIPT_DIR,
+    )
+    if ret.returncode != 0:
+        print(f"  plot_hypnogram.py failed for {session}, skipping HR/HRV analysis.")
+        return
+    if os.path.exists(os.path.join(SCRIPT_DIR, hypno_path)):
+        print(f"  Hypnogram: {hypno_path}")
+
+    # analyze_ppg.py
+    print(f"\n  → uv run analyze_ppg.py {ppg_path}")
+    ret = subprocess.run(
+        ["uv", "run", "analyze_ppg.py", ppg_path],
+        cwd=SCRIPT_DIR,
+    )
+    if ret.returncode != 0:
+        print(f"  analyze_ppg.py failed for {session}.")
+        return
+    if os.path.exists(os.path.join(SCRIPT_DIR, analysis_path)):
+        print(f"  HR/HRV plot: {analysis_path}")
 
 
 if __name__ == "__main__":
