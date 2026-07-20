@@ -326,10 +326,11 @@ def main():
         print(f"    uv run plot_hypnogram.py {stages_path}")
         print(f"    uv run analyze_ppg.py {ppg_path}")
 
-        if args.session or imported_count == 1:
+        if imported_count > 0:
             try:
                 answer = input(
-                    "\n  Run sleep staging + hypnogram + HR/HRV analysis now? [Y/n] "
+                    "\n  Run sleep staging + hypnogram + HR/HRV analysis on the latest "
+                    f"session ({last})? [Y/n] "
                 ).strip().lower()
             except (EOFError, KeyboardInterrupt):
                 answer = "n"
